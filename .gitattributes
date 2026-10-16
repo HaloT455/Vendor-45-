@@ -1,0 +1,4 @@
+vendor/** -text
+provenance/** -text
+tools/** text eol=lf
+metadata/** text eol=lf

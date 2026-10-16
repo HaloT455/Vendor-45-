@@ -1,0 +1,26 @@
+{
+  "verified": true,
+  "entries": 1429,
+  "changed_files": [],
+  "source_image_sha256": "4368eefcc7c4a8d7dc7b1d61e2116a80daef31f10a134d2853f7c63259224437",
+  "rebuilt_image_sha256": "4368eefcc7c4a8d7dc7b1d61e2116a80daef31f10a134d2853f7c63259224437",
+  "rebuilt_image_bytes": 481640448,
+  "byte_identical": true,
+  "runtime_tested": false,
+  "mkfs_command": [
+    "mkfs.erofs",
+    "--tar=f",
+    "-zlz4hc,level=12",
+    "-b4096",
+    "-C4096",
+    "-E",
+    "^xattr-name-filter,^ztailpacking,^fragments",
+    "-T1199145600",
+    "--mkfs-time",
+    "-U4eb9d5a1-934e-ce86-79f0-1c167d49c36e",
+    "--workers=4",
+    "--quiet",
+    "OUTPUT",
+    "SOURCE_TAR"
+  ]
+}

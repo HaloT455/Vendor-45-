@@ -1,0 +1,7 @@
+/out/
+/.tools/
+*.pyc
+__pycache__/
+/*.img
+/*.zip
+/*.bundle

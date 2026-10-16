@@ -1,0 +1,8 @@
+{
+  "name": "erofs-utils",
+  "version": "1.8.6",
+  "package": "erofs-utils_1.8.6-1_amd64.deb",
+  "url": "https://deb.debian.org/debian/pool/main/e/erofs-utils/erofs-utils_1.8.6-1_amd64.deb",
+  "sha256": "81042b8c0c3eb63699aa7d0763dceedc675a747d9f5cfebf914b4160233f411e",
+  "architecture": "amd64"
+}

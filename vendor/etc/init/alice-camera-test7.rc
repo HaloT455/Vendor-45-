@@ -1,0 +1,6 @@
+# ALICE Test7 - exact dream2lte OneUI8 build from the 20 Sep diagnostic.
+# mount is an init builtin (not a vendor shell service). Failure is non-fatal.
+# Mount only this XML, leaving all other /system/cameradata files visible.
+# Applied before zygote; source is on the read-only vendor filesystem.
+on post-fs-data && property:ro.product.vendor.device=dream2lte && property:ro.build.version.sdk=36 && property:ro.build.fingerprint=samsung/r0sxxx/r0s:16/BP2A.250605.031.A3/S901BXXSNGZD7:user/release-keys
+    mount none /vendor/etc/alice-test7/camera-feature.xml /system/cameradata/camera-feature.xml bind

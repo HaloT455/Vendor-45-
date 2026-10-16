@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "authoritative_input": "vendor-OneUI8-S8Plus-Test7-Camera-Bixby(1).img",
+  "image_sha256": "4368eefcc7c4a8d7dc7b1d61e2116a80daef31f10a134d2853f7c63259224437",
+  "image_bytes": 481640448,
+  "current_session": {
+    "image_recovered_and_rehashed": true,
+    "zip_recheck": false,
+    "zip_recheck_reason": "Original ZIP is no longer present locally and materialization returned permission denied."
+  },
+  "previous_session_record": {
+    "zip_name": "02-ALICE-Vendor-Test7-Camera-Bixby.zip",
+    "zip_sha256": "08f28351d83fe6a4ea7f2c1264943d5a96a944296406eada5ff431f727a6ea36",
+    "zip_bytes": 406807575,
+    "embedded_image_sha256": "4368eefcc7c4a8d7dc7b1d61e2116a80daef31f10a134d2853f7c63259224437",
+    "crc_entries_passed": 18,
+    "checksum_lines_passed": 17,
+    "vendor_payload_files_matched": 6,
+    "evidence_kind": "Results retained in conversation handoff; original report and ZIP are unavailable in this resumed workspace."
+  },
+  "recovery_note": "Local unpushed commit e6e1b8361e47790964e56367bc7ca5cbf67996fe was lost during scratch cleanup. Vendor reconstructed from the same verified image, with newly written metadata/build tools. No vendor edits."
+}

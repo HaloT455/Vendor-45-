@@ -1,0 +1,6 @@
+# ALICE Test7: gpio_keys on dream2lte. Bixby button -> default assistant.
+key 114 VOLUME_DOWN
+key 115 VOLUME_UP
+key 116 POWER
+key 172 HOME
+key 703 ASSIST
