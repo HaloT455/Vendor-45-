@@ -71,6 +71,8 @@ def main():
     p.add_argument('--output', type=Path, default=ROOT/'out/vendor.img')
     p.add_argument('--verify-only', action='store_true')
     p.add_argument('--allow-file-changes', action='store_true')
+    p.add_argument('--max-image-bytes', type=int, default=None,
+                   help='Research experiment only: never use as evidence of device partition size')
     a = p.parse_args()
     manifest = json.loads((ROOT/'metadata/vendor-image-manifest.json').read_text())
     changed = verify_source(manifest, a.allow_file_changes)
@@ -114,7 +116,9 @@ def main():
                 assert n['sha256'] == sha256(ROOT/'vendor'/rel), f'Data differs: {rel}'
         for key in ['block_size','build_time','build_time_nsec','feature_compat','feature_incompat','uuid']:
             assert s[key] == rebuilt['superblock'][key], f'Superblock differs: {key}'
-        assert output.stat().st_size <= manifest['source_image_bytes'], 'Image exceeds baseline allocation'
+        image_limit = a.max_image_bytes if a.max_image_bytes is not None else manifest['source_image_bytes']
+        assert image_limit >= manifest['source_image_bytes'], 'Experimental limit must not shrink baseline'
+        assert output.stat().st_size <= image_limit, f'Image exceeds configured size limit: {image_limit}'
         report = {'verified':True, 'entries':len(old), 'changed_files':changed,
                   'source_image_sha256':manifest['source_image_sha256'],
                   'rebuilt_image_sha256':rebuilt['source_image_sha256'],

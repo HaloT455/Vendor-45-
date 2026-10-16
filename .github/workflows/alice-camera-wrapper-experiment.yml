@@ -1,0 +1,84 @@
+name: ALICE Exynos8895 Camera HAL wrapper EROFS experiment
+on:
+  push:
+    branches: ["work/**"]
+    paths:
+      - "tools/stage_hlong_camera_wrapper.py"
+      - "tools/integrate_hlong_camera_trial.py"
+      - "tools/build_vendor.py"
+      - ".github/workflows/alice-camera-wrapper-experiment.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  experimental-camera:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - name: Checkout vendor research branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Enforce immutable ALICE source baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse refs/remotes/origin/baseline/test7)" = d5748652ddf1eb4cdc18d2f51cbbde8f6fd16170
+          case "$GITHUB_REF_NAME" in work/*) ;; *) echo "Only work branches"; exit 1 ;; esac
+      - name: Install pinned EROFS utilities and readelf
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils dpkg-dev
+          python3 tools/setup_erofs.py
+      - name: Verify pristine Test7 vendor research input
+        run: |
+          python3 tools/test_vendor_config_fixes.py
+          python3 tools/build_vendor.py --verify-only --allow-file-changes
+      - name: Download SHA-pinned wrapper and preserve legacy 32/64 HAL
+        run: |
+          python3 tools/stage_hlong_camera_wrapper.py --output out/stage_hlong_camera
+          python3 tools/integrate_hlong_camera_trial.py \
+            --stage out/stage_hlong_camera \
+            --report out/camera-integration-trial.json
+      - name: Check wrapper ELF exported HAL module symbols and runtime deps
+        run: |
+          set -euo pipefail
+          for abi in lib lib64; do
+            wrapper="vendor/$abi/hw/camera.universal8895.so"
+            backup="vendor/$abi/hw/camera.vendor.universal8895.so"
+            readelf -h "$wrapper" | grep -E 'Class:|Machine:'
+            readelf -Ws "$wrapper" | grep -w HAL_MODULE_INFO_SYM
+            readelf -d "$wrapper" | grep -F '(NEEDED)' || true
+            test -s "$backup"
+          done
+      - name: Verify expanded metadata and modified paths
+        run: python3 tools/build_vendor.py --verify-only --allow-file-changes
+      - name: Build self-checking experimental EROFS (NEVER FLASH)
+        run: |
+          python3 tools/build_vendor.py \
+            --allow-file-changes \
+            --max-image-bytes 629145600 \
+            --output out/vendor-hlong-camera-experiment.img
+      - name: Research-only results
+        if: always()
+        shell: bash
+        run: |
+          for f in out/camera-integration-trial.json out/vendor-hlong-camera-experiment.report.json; do
+            if [ -f "$f" ]; then cat "$f"; fi
+          done
+          echo "UNTESTED EXPERIMENT: NEVER FLASH THIS IMAGE" >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain experimental image for analysis (3 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ALICE-UN1GAGA-CAMERA-EXPERIMENT-DO-NOT-FLASH
+          if-no-files-found: warn
+          retention-days: 3
+          compression-level: 1
+          path: |
+            out/camera-integration-trial.json
+            out/vendor-hlong-camera-experiment.report.json
+            out/vendor-hlong-camera-experiment.img
