@@ -48,6 +48,11 @@ jobs:
           python3 -m py_compile tools/audit_vendor_camera_ril.py
           python3 tools/audit_vendor_camera_ril.py --output out/audit.json
 
+      - name: Probe Exynos8895 Camera HAL / RIL native ABI
+        run: |
+          python3 -m py_compile tools/probe_vendor_compat.py
+          python3 tools/probe_vendor_compat.py --output out/compat.json
+
       - name: Verify Test7 init and RIL configuration patch
         run: python3 tools/test_vendor_config_fixes.py
 
@@ -82,5 +87,6 @@ jobs:
           compression-level: 1
           path: |
             out/audit.json
+            out/compat.json
             out/vendor.report.json
             out/vendor.img
