@@ -69,26 +69,26 @@ def run_readelf(path: Path, option: str) -> str:
 
 def elf_info(path: Path, needles: list[bytes]) -> dict:
     data = path.read_bytes()
-    if data[:4] != b"\\x7fELF":
+    if data[:4] != b"\x7fELF":
         raise ValueError(f"not ELF: {path}")
     hdr = run_readelf(path, "-h")
     dyn = run_readelf(path, "-d")
     symbols = run_readelf(path, "-Ws")
-    kinds = sorted(set(re.findall(r"\\(NEEDED\\).*?\\[([^\\]]+)\\]", dyn)))
-    sonames = sorted(set(re.findall(r"\\(SONAME\\).*?\\[([^\\]]+)\\]", dyn)))
+    kinds = sorted(set(re.findall(r"\(NEEDED\).*?\[([^\]]+)\]", dyn)))
+    sonames = sorted(set(re.findall(r"\(SONAME\).*?\[([^\]]+)\]", dyn)))
     unresolved = sorted(set(
         match.group(1).split("@")[0]
         for line in symbols.splitlines()
-        if (match := re.search(r"\\bUND\\s+([^\\s]+)", line)) and match.group(1) != "0"
+        if (match := re.search(r"\bUND\s+([^\s]+)", line)) and match.group(1) != "0"
     ))
     exports = sorted(set(
         match.group(1).split("@")[0]
         for line in symbols.splitlines()
-        if not re.search(r"\\bUND\\s+", line)
-        and (match := re.search(r"\\b(?:GLOBAL|WEAK)\\s+\\w+\\s+\\w+\\s+([^\\s]+)$", line))
+        if not re.search(r"\bUND\s+", line)
+        and (match := re.search(r"\b(?:GLOBAL|WEAK)\s+\w+\s+\w+\s+([^\s]+)$", line))
     ))
-    clazz = re.search(r"^\\s*Class:\\s*(.*)$", hdr, re.M)
-    machine = re.search(r"^\\s*Machine:\\s*(.*)$", hdr, re.M)
+    clazz = re.search(r"^\s*Class:\s*(.*)$", hdr, re.M)
+    machine = re.search(r"^\s*Machine:\s*(.*)$", hdr, re.M)
     matches = {n.decode(): (n in data) for n in needles}
     return {
         "size": len(data),
