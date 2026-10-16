@@ -48,6 +48,9 @@ jobs:
           python3 -m py_compile tools/audit_vendor_camera_ril.py
           python3 tools/audit_vendor_camera_ril.py --output out/audit.json
 
+      - name: Verify Test7 init and RIL configuration patch
+        run: python3 tools/test_vendor_config_fixes.py
+
       - name: Install pinned EROFS 1.8.6
         run: python3 tools/setup_erofs.py
 

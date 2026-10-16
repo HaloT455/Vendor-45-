@@ -334,7 +334,7 @@ vendor/etc/hyper/config_chipset.json 0 0 0644
 vendor/etc/hyper/config_hyper_permission.json 0 0 0644
 vendor/etc/hyper/config_model.json 0 0 0644
 vendor/etc/hyper/config_vendor.json 0 0 0644
-vendor/etc/init 0 2000 0000
+vendor/etc/init 0 2000 0755
 vendor/etc/init/alice-camera-test7.rc 0 0 0644
 vendor/etc/init/android.hardware.audio.service.rc 0 0 0644
 vendor/etc/init/android.hardware.bluetooth@1.0-service.rc 0 0 0644

@@ -42,3 +42,21 @@ A passing job means **offline build verified**, not functioning camera or Dual L
 
 Do not rename a HAL version or toggle `persist.radio` properties to claim hardware
 support. Propose each real patch with a byte/content diff, rollback, and specific test.
+
+## Patch P1 (work/camera-sim) — init accessibility and basic radio property wiring
+
+- Set EROFS metadata for `/vendor/etc/init` from `0000` to `0755`.
+  The original DAC mode made access by normal readers impossible and may
+  prevent vendor init rc scanning. Original metadata stays on baseline/test7.
+- Remove the single firmware-fingerprint pin from Test7 camera-feature bind
+  trigger. Keep `dream2lte` and SDK 36 as safeguards; no HAL binary changes.
+  Confirm the bind mount target exists and is mounted on the real device.
+- Change radio init's default-network expansion from an absent
+  `ro.vendor.radio.default_network` to the defined
+  `ro.vendor.sec.radio.def_network=9`. Actual `ro.telephony.default_network`
+  might already be read-only when this executes; inspect init logs.
+- Add CI invariant checks for these three configuration changes.
+
+P1 is only a **configuration repair**, not an upgrade to Samsung Camera HAL,
+an Android framework RAF repair or a CP dual-LTE implementation. Runtime
+compatibility remains unverified. Do not flash based only on CI success.

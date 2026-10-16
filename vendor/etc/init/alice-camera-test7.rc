@@ -1,6 +1,7 @@
-# ALICE Test7 - exact dream2lte OneUI8 build from the 20 Sep diagnostic.
-# mount is an init builtin (not a vendor shell service). Failure is non-fatal.
-# Mount only this XML, leaving all other /system/cameradata files visible.
-# Applied before zygote; source is on the read-only vendor filesystem.
-on post-fs-data && property:ro.product.vendor.device=dream2lte && property:ro.build.version.sdk=36 && property:ro.build.fingerprint=samsung/r0sxxx/r0s:16/BP2A.250605.031.A3/S901BXXSNGZD7:user/release-keys
+# ALICE Test7 camera feature mount for dream2lte / Android 16.
+# Match device identity and Android API, not a single spoofed framework fingerprint.
+# This avoids silently disabling the feature XML after a minor One UI port update.
+# Only the feature XML is overlaid; no HAL implementation is replaced here.
+# Runtime success must be confirmed in init logs and Samsung Camera preview.
+on post-fs-data && property:ro.product.vendor.device=dream2lte && property:ro.build.version.sdk=36
     mount none /vendor/etc/alice-test7/camera-feature.xml /system/cameradata/camera-feature.xml bind
