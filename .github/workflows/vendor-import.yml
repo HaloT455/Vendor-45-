@@ -1,0 +1,80 @@
+name: Import verified Test7 vendor
+on:
+  push:
+    branches: [transfer/test7]
+permissions:
+  contents: write
+jobs:
+  import:
+    if: github.repository == 'HaloT455/Vendor-45-'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Verify and restore the complete Git bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          m=json.loads(Path('bundle-manifest.json').read_text())
+          assert m['source_commit']=='e6e1b8361e47790964e56367bc7ca5cbf67996fe'
+          assert m['source_tree']=='54e91655ed13918a64a7717f0a3992873eede92e'
+          out=Path(os.environ['RUNNER_TEMP'])/'vendor-test7.bundle'
+          h=hashlib.sha256()
+          with out.open('wb') as w:
+              for part in m['parts']:
+                  p=Path(part['path'])
+                  assert p.parent==Path('chunks') and p.is_file() and not p.is_symlink()
+                  data=p.read_bytes()
+                  assert len(data)==part['size']
+                  assert hashlib.sha256(data).hexdigest()==part['sha256']
+                  h.update(data);w.write(data)
+          assert out.stat().st_size==m['bundle_bytes']
+          assert h.hexdigest()==m['bundle_sha256']
+          Path(os.environ['RUNNER_TEMP'],'expected-main').write_text(m['expected_main_sha'])
+          print('Complete bundle SHA-256 verified:',h.hexdigest())
+          PY
+          git bundle verify "$RUNNER_TEMP/vendor-test7.bundle"
+          git fetch "$RUNNER_TEMP/vendor-test7.bundle" refs/heads/baseline/test7:refs/remotes/import/baseline refs/heads/work/camera-sim:refs/remotes/import/work
+          expected=e6e1b8361e47790964e56367bc7ca5cbf67996fe
+          test "$(git rev-parse refs/remotes/import/baseline)" = "$expected"
+          test "$(git rev-parse refs/remotes/import/work)" = "$expected"
+          test "$(git rev-parse "$expected^{tree}")" = 54e91655ed13918a64a7717f0a3992873eede92e
+          test "$(git ls-tree -r "$expected" -- vendor | wc -l)" -eq 1345
+          git push --atomic origin "$expected:refs/heads/baseline/test7" "$expected:refs/heads/work/camera-sim"
+      - name: Publish the repository landing page and remove the import workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          if test "$(git rev-parse FETCH_HEAD)" != "$(cat "$RUNNER_TEMP/expected-main")"; then
+            echo "main changed during import; keeping it untouched."
+            exit 0
+          fi
+          git switch -c import-summary FETCH_HEAD
+          python3 - <<'PY'
+          from pathlib import Path
+          Path('README.md').write_text("""# ALICE Vendor Test7 — Galaxy S8+ / Exynos 8895
+
+          Đã import toàn bộ cây vendor và metadata từ ảnh/ZIP đã đối chiếu.
+
+          - [Nhánh chuẩn baseline/test7](https://github.com/HaloT455/Vendor-45-/tree/baseline/test7): giữ nguyên để đối chiếu.
+          - [Nhánh sửa/build work/camera-sim](https://github.com/HaloT455/Vendor-45-/tree/work/camera-sim): làm việc từ cùng commit gốc.
+          - Commit gốc: e6e1b8361e47790964e56367bc7ca5cbf67996fe.
+          - 1.158 file, 187 symlink; metadata đủ 1.429 inode.
+          - Build lại offline cho ảnh trùng SHA-256: 4368eefcc7c4a8d7dc7b1d61e2116a80daef31f10a134d2853f7c63259224437.
+
+          Hướng dẫn build nằm trong README của hai nhánh. main chỉ là trang dẫn tới bộ nguồn chuẩn, không phải một vendor khác.
+          """,encoding='utf-8')
+          Path('.github/workflows/vendor-import.yml').unlink()
+          PY
+          git add README.md .github/workflows/vendor-import.yml
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "Publish verified vendor baseline links and finish import"
+          git push origin HEAD:refs/heads/main
+      - name: Remove the temporary transfer branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git push --force-with-lease=refs/heads/transfer/test7:"$GITHUB_SHA" origin :refs/heads/transfer/test7
