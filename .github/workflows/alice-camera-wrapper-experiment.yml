@@ -50,7 +50,40 @@ jobs:
             wrapper="vendor/$abi/hw/camera.universal8895.so"
             backup="vendor/$abi/hw/camera.vendor.universal8895.so"
             readelf -h "$wrapper" | grep -E 'Class:|Machine:'
-            readelf -Ws "$wrapper" | grep -w HAL_MODULE_INFO_SYM
+            # hardware.h declares HAL_MODULE_INFO_SYM, but the exported ELF symbol is HMI.
+            readelf --dyn-syms --wide "$wrapper" | grep -E '[[:space:]]HMI
+            readelf -d "$wrapper" | grep -F '(NEEDED)' || true
+            test -s "$backup"
+          done
+      - name: Verify expanded metadata and modified paths
+        run: python3 tools/build_vendor.py --verify-only --allow-file-changes
+      - name: Build self-checking experimental EROFS (NEVER FLASH)
+        run: |
+          python3 tools/build_vendor.py \
+            --allow-file-changes \
+            --max-image-bytes 629145600 \
+            --output out/vendor-hlong-camera-experiment.img
+      - name: Research-only results
+        if: always()
+        shell: bash
+        run: |
+          for f in out/camera-integration-trial.json out/vendor-hlong-camera-experiment.report.json; do
+            if [ -f "$f" ]; then cat "$f"; fi
+          done
+          echo "UNTESTED EXPERIMENT: NEVER FLASH THIS IMAGE" >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain experimental image for analysis (3 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ALICE-UN1GAGA-CAMERA-EXPERIMENT-DO-NOT-FLASH
+          if-no-files-found: warn
+          retention-days: 3
+          compression-level: 1
+          path: |
+            out/camera-integration-trial.json
+            out/vendor-hlong-camera-experiment.report.json
+            out/vendor-hlong-camera-experiment.img
+
             readelf -d "$wrapper" | grep -F '(NEEDED)' || true
             test -s "$backup"
           done
