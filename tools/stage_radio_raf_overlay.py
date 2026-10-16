@@ -78,9 +78,8 @@ def main():
         run(apksigner, "verify", args.output)
         resources = subprocess.check_output([str(aapt2), "dump", "resources",
                                              str(args.output)], text=True)
-        manifest_text = subprocess.check_output([str(aapt2), "dump", "xmltree",
-                                                  str(args.output), "AndroidManifest.xml"],
-                                                 text=True)
+        manifest_text = subprocess.check_output([str(aapt2), "dump", "badging",
+                                                  str(args.output)], text=True)
         assert "alice_radio_access_family" in resources, "Compiled RAF resource missing"
         assert "overlays" in resources, "Compiled resourcesMap missing"
         assert "com.alice.radio.raf.overlay" in manifest_text, "Package ID missing"
