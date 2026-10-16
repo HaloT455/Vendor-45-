@@ -1,0 +1,41 @@
+name: ALICE hlong camera wrapper - research staging only
+on:
+  push:
+    branches:
+      - "work/**"
+    paths:
+      - "tools/stage_hlong_camera_wrapper.py"
+      - ".github/workflows/alice-stage-hlong-camera.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify script syntax
+        run: python3 -m py_compile tools/stage_hlong_camera_wrapper.py
+      - name: Stage pinned Exynos8895 32/64-bit camera wrappers with Git SHA checks
+        run: python3 tools/stage_hlong_camera_wrapper.py --output out/stage_hlong_camera
+      - name: Inspect ELF dependencies (not a runtime test)
+        run: |
+          set -euo pipefail
+          for f in out/stage_hlong_camera/vendor/lib*/hw/camera.*.so; do
+            echo "===== $f ====="
+            readelf -h "$f" | grep -E 'Class:|Machine:'
+            readelf -d "$f" | grep NEEDED || true
+          done
+      - name: Upload non-installable research stage (3 days)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ALICE-hlong-camera-stage-NOT-FLASH-READY
+          retention-days: 3
+          compression-level: 0
+          if-no-files-found: error
+          path: out/stage_hlong_camera/
