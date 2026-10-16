@@ -57,10 +57,13 @@ jobs:
             readelf -d "$wrapper" | grep -F '(NEEDED)' || true
             test -s "$backup"
           done
+      - name: Bootstrap current Android command-line SDK without deprecated tools package
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ''
       - name: Install Android API36 platform and AAPT2
         run: |
-          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
-          "${ANDROID_HOME}/cmdline-tools/16.0/bin/sdkmanager" --install "platforms;android-36" "build-tools;36.0.0"
+          sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
       - name: Compile static GSM/WCDMA/LTE RAF fallback for unsupported RIL
         run: |
           python3 tools/stage_radio_raf_overlay.py \
