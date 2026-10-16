@@ -1,0 +1,83 @@
+name: ALICE Test7 vendor - research CI
+
+on:
+  push:
+    branches:
+      - "work/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-build:
+    name: Verify Test7 source and build EROFS
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out complete source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Enforce immutable Test7 baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="d5748652ddf1eb4cdc18d2f51cbbde8f6fd16170"
+          current="$(git rev-parse refs/remotes/origin/baseline/test7)"
+          if [ "$current" != "$expected" ]; then
+            echo "::error::baseline/test7 has changed; stop to prevent unsafe provenance"
+            exit 1
+          fi
+          case "$GITHUB_REF_NAME" in
+            work/*) ;;
+            *) echo "::error::Build only a work/* branch"; exit 1 ;;
+          esac
+          git diff --stat "$expected" HEAD || true
+          echo "Baseline commit locked: $expected"
+
+      - name: Install host utilities
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils dpkg-dev
+
+      - name: Static camera and dual-SIM RIL audit
+        run: |
+          python3 -m py_compile tools/audit_vendor_camera_ril.py
+          python3 tools/audit_vendor_camera_ril.py --output out/audit.json
+
+      - name: Install pinned EROFS 1.8.6
+        run: python3 tools/setup_erofs.py
+
+      - name: Verify Test7 input and manifest
+        run: python3 tools/build_vendor.py --verify-only --allow-file-changes
+
+      - name: Build and verify EROFS image (NOT flash-ready)
+        run: python3 tools/build_vendor.py --allow-file-changes --output out/vendor.img
+
+      - name: Publish verification summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f out/vendor.report.json ]; then
+            cat out/vendor.report.json
+          fi
+          if [ -f out/audit.json ]; then
+            cat out/audit.json
+          fi
+          echo "Static and reproducible-image verification only; no physical device tests" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain research artifact for 3 days
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: alice-test7-research-only-NOT-FLASH-READY
+          if-no-files-found: warn
+          retention-days: 3
+          compression-level: 1
+          path: |
+            out/audit.json
+            out/vendor.report.json
+            out/vendor.img
