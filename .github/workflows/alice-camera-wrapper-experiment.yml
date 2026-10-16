@@ -79,20 +79,38 @@ jobs:
           python3 tools/build_vendor.py \
             --allow-file-changes \
             --max-image-bytes 629145600 \
-            --output out/vendor-camera-radio-experiment.img
+            --output out/vendor.img
+      - name: Verify delivered vendor.img checksum and EROFS magic
+        run: |
+          set -euo pipefail
+          test -s out/vendor.img
+          test "$(od -An -tx4 -j1024 -N4 out/vendor.img | tr -d ' ')" = e0f5e1e2
+          sha256sum out/vendor.img | tee out/SHA256SUMS
+          test -s out/vendor.report.json
+          python3 - <<'PY'
+          import hashlib, json, pathlib
+          image=pathlib.Path("out/vendor.img")
+          report=json.loads(pathlib.Path("out/vendor.report.json").read_text())
+          assert report["verified"] is True and report["entries"] == 1433
+          assert report["rebuilt_image_bytes"] == image.stat().st_size
+          assert report["rebuilt_image_sha256"] == hashlib.sha256(image.read_bytes()).hexdigest()
+          print("PASS: vendor.img matches verified EROFS report")
+          PY
       - name: Research-only results
         if: always()
         shell: bash
         run: |
-          for f in out/camera-integration-trial.json out/alice-radio-raf-trial.json out/vendor-camera-radio-experiment.report.json; do
+          for f in out/camera-integration-trial.json out/alice-radio-raf-trial.json out/vendor.report.json; do
             if [ -f "$f" ]; then cat "$f"; fi
           done
-          echo "UNTESTED EXPERIMENT: NEVER FLASH THIS IMAGE" >> "$GITHUB_STEP_SUMMARY"
+          echo "## vendor.img — CAMERA+RAF experiment" >> "$GITHUB_STEP_SUMMARY"
+          echo "Offline validated EROFS only; no S8+ hardware, camera app, idmap, or LTE registration test. **DO NOT FLASH.**" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f out/SHA256SUMS ]; then cat out/SHA256SUMS >> "$GITHUB_STEP_SUMMARY"; fi
       - name: Retain experimental image for analysis (3 days)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ALICE-CAMERA-RADIO-EXPERIMENT-DO-NOT-FLASH
+          name: ALICE-Test7-Camera-Radio-vendor-img-UNTESTED
           if-no-files-found: warn
           retention-days: 3
           compression-level: 1
@@ -100,5 +118,6 @@ jobs:
             out/camera-integration-trial.json
             out/alice-radio-raf-trial.json
             out/ALICE-RadioRAF.apk
-            out/vendor-camera-radio-experiment.report.json
-            out/vendor-camera-radio-experiment.img
+            out/SHA256SUMS
+            out/vendor.report.json
+            out/vendor.img
