@@ -1,0 +1,42 @@
+name: ALICE Samsung Camera S9 reference investigation
+on:
+  push:
+    branches: ["work/**"]
+    paths:
+      - "tools/probe_samsung_camera_8895.py"
+      - "tools/s9_reference/**"
+      - ".github/workflows/alice-samsung-camera-reference.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  research:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test UN1CA S9+ Samsung Photo source fix on known smali fixtures
+        run: |
+          cd tools/s9_reference
+          python3 -B -m unittest -v test_restore_photo_processing.py
+      - name: Analyze real S8+ Exynos8895 HAL 32-bit and 64-bit
+        run: |
+          python3 tools/probe_samsung_camera_8895.py --output out/s8-vs-s9-camera-abi.json
+          python3 - <<'PY'
+          import json
+          j=json.load(open("out/s8-vs-s9-camera-abi.json"))
+          assert not j["errors"]
+          assert len(j["elf"])==8
+          assert j["camera_feature"]["bind_mount_declared"]
+          assert not j["flash_ready"]
+          print("S9 source tests and S8 native ELF metadata audited. NO DEVICE TEST.")
+          PY
+      - name: Publish ABI report
+        uses: actions/upload-artifact@v4
+        with:
+          name: ALICE-S8-S9-SamsungCamera-ABI-RESEARCH
+          if-no-files-found: error
+          retention-days: 3
+          path: out/s8-vs-s9-camera-abi.json
