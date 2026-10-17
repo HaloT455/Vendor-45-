@@ -4,6 +4,7 @@ on:
     branches: ["work/**"]
     paths:
       - "tools/probe_samsung_camera_8895.py"
+      - "tools/camera_preview_contract.py"
       - "tools/s9_reference/**"
       - ".github/workflows/alice-samsung-camera-reference.yml"
   workflow_dispatch:
@@ -37,6 +38,8 @@ jobs:
                     "needed", [n for n in row["needed"] if "camera" in n.lower() or "shim" in n.lower()])
           print("S9 source tests and S8 native ELF metadata audited. NO DEVICE TEST.")
           PY
+      - name: Assert preview vendor-tag regression classifier
+        run: python3 tools/camera_preview_contract.py --selftest
       - name: Publish ABI report
         uses: actions/upload-artifact@v4
         with:
