@@ -31,6 +31,10 @@ jobs:
           assert len(j["elf"])==8
           assert j["camera_feature"]["bind_mount_declared"]
           assert not j["flash_ready"]
+          for p, row in sorted(j["elf"].items()):
+              print("ABI", p, "S9_exact_entry", row["s9_exact_capture_symbol_exported"],
+                    "capture_sym", row["capture_symbols"][:6],
+                    "needed", [n for n in row["needed"] if "camera" in n.lower() or "shim" in n.lower()])
           print("S9 source tests and S8 native ELF metadata audited. NO DEVICE TEST.")
           PY
       - name: Publish ABI report
