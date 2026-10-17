@@ -29,7 +29,7 @@ def main():
         raise ValueError("Overlay output not a valid ZIP/APK archive")
     j = json.loads(M.read_text())
     entries = {e["path"]: e for e in j["entries"]}
-    assert len(j["entries"]) == 1431, "Camera HAL integration must have run first"
+    assert len(j["entries"]) == 1433, "UN1GAGA and ALICE preview bridge integration must have run first"
     assert NEW_DIR not in entries and NEW_APK not in entries, "Overlay already present"
     base_dir = entries["overlay/ConnectivityOverlay"]
     base_apk = entries["overlay/ConnectivityOverlay/ConnectivityOverlay.apk"]

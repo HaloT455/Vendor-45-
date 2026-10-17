@@ -1,8 +1,11 @@
-name: ALICE Camera + dual-SIM radio EROFS experiment
+name: ALICE Camera preview tag + 4G EROFS experiment
 on:
   push:
     branches: ["work/**"]
     paths:
+      - "tools/native_camera/**"
+      - "tools/build_samsung_preview_bridge.py"
+      - "tools/integrate_samsung_preview_bridge_trial.py"
       - "tools/stage_hlong_camera_wrapper.py"
       - "tools/integrate_hlong_camera_trial.py"
       - "tools/build_vendor.py"
@@ -64,6 +67,25 @@ jobs:
       - name: Install Android API36 platform and AAPT2
         run: |
           sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
+      - name: Install pinned Android NDK r27c
+        run: |
+          if [ ! -x "${ANDROID_HOME}/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" ]; then
+            sdkmanager --install "ndk;27.2.12479018"
+          fi
+      - name: Cross-compile Samsung preview vendor-tag bridge for Exynos8895
+        run: |
+          python3 tools/build_samsung_preview_bridge.py \
+            --ndk "${ANDROID_HOME}/ndk/27.2.12479018" \
+            --output out/stage_preview_bridge
+          python3 tools/integrate_samsung_preview_bridge_trial.py \
+            --stage out/stage_preview_bridge \
+            --report out/samsung-preview-bridge-trial.json
+          for abi in lib lib64; do
+            test -s "vendor/$abi/hw/camera.alice-hlong.universal8895.so"
+            test -s "vendor/$abi/hw/camera.vendor.universal8895.so"
+            readelf --dyn-syms --wide "vendor/$abi/hw/camera.universal8895.so" | grep -E '[[:space:]]HMI$'
+            readelf -d "vendor/$abi/hw/camera.universal8895.so" | grep -F liblog.so
+          done
       - name: Compile static GSM/WCDMA/LTE RAF fallback for unsupported RIL
         run: |
           python3 tools/stage_radio_raf_overlay.py \
@@ -91,7 +113,7 @@ jobs:
           import hashlib, json, pathlib
           image=pathlib.Path("out/vendor.img")
           report=json.loads(pathlib.Path("out/vendor.report.json").read_text())
-          assert report["verified"] is True and report["entries"] == 1433
+          assert report["verified"] is True and report["entries"] == 1435
           assert report["rebuilt_image_bytes"] == image.stat().st_size
           assert report["rebuilt_image_sha256"] == hashlib.sha256(image.read_bytes()).hexdigest()
           print("PASS: vendor.img matches verified EROFS report")
@@ -100,22 +122,24 @@ jobs:
         if: always()
         shell: bash
         run: |
-          for f in out/camera-integration-trial.json out/alice-radio-raf-trial.json out/vendor.report.json; do
+          for f in out/camera-integration-trial.json out/samsung-preview-bridge-trial.json out/alice-radio-raf-trial.json out/vendor.report.json; do
             if [ -f "$f" ]; then cat "$f"; fi
           done
-          echo "## vendor.img — CAMERA+RAF experiment" >> "$GITHUB_STEP_SUMMARY"
-          echo "Offline validated EROFS only; no S8+ hardware, camera app, idmap, or LTE registration test. **DO NOT FLASH.**" >> "$GITHUB_STEP_SUMMARY"
+          echo "## vendor.img — Exynos8895 Samsung preview vendor-tag compatibility + radio experiment" >> "$GITHUB_STEP_SUMMARY"
+          echo "Compiled OEM metadata bridge, tested ELF/EROFS only. SamsungCamera 16.5 preview, idmap, actual device boot, and LTE have NOT been tested. **DO NOT FLASH.**" >> "$GITHUB_STEP_SUMMARY"
           if [ -f out/SHA256SUMS ]; then cat out/SHA256SUMS >> "$GITHUB_STEP_SUMMARY"; fi
       - name: Retain experimental image for analysis (3 days)
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ALICE-Test7-Camera-Radio-vendor-img-UNTESTED
+          name: ALICE-Test7-PreviewTag-4G-vendor-img-UNTESTED
           if-no-files-found: warn
           retention-days: 3
           compression-level: 1
           path: |
             out/camera-integration-trial.json
+            out/samsung-preview-bridge-trial.json
+            out/stage_preview_bridge/build-report.json
             out/alice-radio-raf-trial.json
             out/ALICE-RadioRAF.apk
             out/SHA256SUMS
