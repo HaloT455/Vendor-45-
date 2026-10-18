@@ -5,6 +5,7 @@ on:
     paths:
       - "tools/audit_android16_vendor_abi.py"
       - "tools/collect_android16_vendor_runtime.sh"
+      - "tools/collect_sim_lte_a16_runtime.sh"
       - ".github/workflows/alice-android16-compat-audit.yml"
       - "docs/ALICE_ANDROID16_VENDOR_COMPAT_ROADMAP.md"
   workflow_dispatch:
@@ -31,6 +32,8 @@ jobs:
         run: python3 tools/audit_android16_vendor_abi.py --selftest
       - name: Validate Android 16 runtime collector syntax
         run: bash -n tools/collect_android16_vendor_runtime.sh
+      - name: Validate dual-SIM LTE radio collector syntax (read-only)
+        run: bash -n tools/collect_sim_lte_a16_runtime.sh
       - name: Enumerate all vendor ELF dependencies, VINTF, face and codec stack
         run: |
           python3 tools/audit_android16_vendor_abi.py --output out/android16-vendor-abi-audit.json
