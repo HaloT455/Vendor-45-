@@ -1,0 +1,84 @@
+name: ALICE S8Plus Android16 radio RAF vendor trial (NOT FLASH READY)
+
+on:
+  push:
+    branches: ["work/dual-sim-lte-raf-trial"]
+    paths:
+      - "tools/integrate_radio_raf_standalone.py"
+      - "tools/stage_radio_raf_overlay.py"
+      - "tools/test_radio_raf_staging.py"
+      - ".github/workflows/alice-dual-sim-raf-trial.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  experimental-vendor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout ALICE experimental branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check baseline and branch isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "work/dual-sim-lte-raf-trial"
+          test "$(git rev-parse refs/remotes/origin/baseline/test7)" = "d5748652ddf1eb4cdc18d2f51cbbde8f6fd16170"
+          git diff --exit-code refs/remotes/origin/work/android16-vendor-compat HEAD -- vendor metadata || true
+      - name: Install host ELF and APK prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils dpkg-dev zip unzip openjdk-17-jdk
+      - name: Setup Android SDK command line
+        uses: android-actions/setup-android@v3
+      - name: Install Android 16 framework resources and build tools
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+          test -f "$ANDROID_HOME/platforms/android-36/android.jar"
+          test -x "$ANDROID_HOME/build-tools/36.0.0/aapt2"
+      - name: Validate trial scripts
+        run: |
+          python3 -m py_compile tools/stage_radio_raf_overlay.py tools/integrate_radio_raf_standalone.py tools/test_radio_raf_staging.py
+      - name: Build signed static Android16 RAF fallback overlay
+        run: |
+          python3 tools/stage_radio_raf_overlay.py --sdk "$ANDROID_HOME" --output out/ALICE-RadioRAF.apk
+          python3 tools/test_radio_raf_staging.py --apk out/ALICE-RadioRAF.apk
+      - name: Stage overlay in experimental vendor tree
+        run: |
+          python3 tools/integrate_radio_raf_standalone.py --apk out/ALICE-RadioRAF.apk
+          python3 tools/test_radio_raf_staging.py --apk vendor/overlay/ALICE-RadioRAF/ALICE-RadioRAF.apk --staged
+      - name: Install pinned EROFS tooling
+        run: python3 tools/setup_erofs.py
+      - name: Verify vendor tree/metadata consistency
+        run: python3 tools/build_vendor.py --verify-only --allow-file-changes
+      - name: Build EROFS research image with overflow headroom
+        run: |
+          python3 tools/build_vendor.py --allow-file-changes --max-image-bytes 498417664 --output out/vendor-radio-raf-UNTESTED.img
+      - name: Publish audit and safety notice
+        if: always()
+        shell: bash
+        run: |
+          echo "RESEARCH ONLY: no live idmap or LTE attach checks performed" >> "$GITHUB_STEP_SUMMARY"
+          echo "SIM1 registration DENIED cannot be fixed by falsely reporting capability." >> "$GITHUB_STEP_SUMMARY"
+          echo "DO NOT FLASH vendor-radio-raf-UNTESTED.img until size, VINTF, idmap, rollback and live checks pass." >> "$GITHUB_STEP_SUMMARY"
+          test ! -f out/vendor-radio-raf-UNTESTED.report.json || cat out/vendor-radio-raf-UNTESTED.report.json
+      - name: Upload experimental image and radio report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ALICE-S8Plus-A16-RAF-VENDOR-UNTESTED-DO-NOT-FLASH
+          retention-days: 7
+          compression-level: 1
+          if-no-files-found: warn
+          path: |
+            out/ALICE-RadioRAF.apk
+            out/alice-raf-stage-report.json
+            out/vendor-radio-raf-UNTESTED.img
+            out/vendor-radio-raf-UNTESTED.report.json
