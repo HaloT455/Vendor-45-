@@ -1,0 +1,49 @@
+name: ALICE Android 16 full vendor ABI compatibility audit
+on:
+  push:
+    branches: ["work/android16-vendor-compat"]
+    paths:
+      - "tools/audit_android16_vendor_abi.py"
+      - ".github/workflows/alice-android16-compat-audit.yml"
+      - "docs/ALICE_ANDROID16_VENDOR_COMPAT_ROADMAP.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static-vendor-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout vendor-only compatibility branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify immutable ALICE vendor source
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = work/android16-vendor-compat
+          test "$(git rev-parse refs/remotes/origin/baseline/test7)" = d5748652ddf1eb4cdc18d2f51cbbde8f6fd16170
+      - name: Verify VNDK deprecation and no invented VNDK36
+        run: python3 tools/audit_android16_vendor_abi.py --selftest
+      - name: Enumerate all vendor ELF dependencies, VINTF, face and codec stack
+        run: |
+          python3 tools/audit_android16_vendor_abi.py --output out/android16-vendor-abi-audit.json
+      - name: Publish detailed machine-readable ABI inventory (research only)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ALICE-Android16-Vendor-Full-ABI-AUDIT-NOT-FLASH-READY
+          retention-days: 14
+          if-no-files-found: warn
+          compression-level: 6
+          path: out/android16-vendor-abi-audit.json
+      - name: Safety summary
+        if: always()
+        run: |
+          echo "Android16/API36 is not VNDK36. Android15+ deprecated VNDK." >> "$GITHUB_STEP_SUMMARY"
+          echo "Legacy vendor v33 remains unchanged; no native HAL source replacements were made." >> "$GITHUB_STEP_SUMMARY"
+          echo "All ELF NEEDED dependencies enumerated but external framework/APEX resolution must be tested on device." >> "$GITHUB_STEP_SUMMARY"
+          echo "NO FLASH-READY IMAGE PRODUCED; no kernel changes." >> "$GITHUB_STEP_SUMMARY"
