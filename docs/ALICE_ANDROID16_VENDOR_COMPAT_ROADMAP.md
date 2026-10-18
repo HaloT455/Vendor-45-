@@ -36,3 +36,14 @@ bash tools/audit_camera_video_face_runtime.sh
 5. **System + vendor integration**: only after each component passes, consider replacing or adapting individual libraries/services using actual Exynos8895-compatible sources, with SONAME, ABI, SELinux and VINTF checks. Test rollback and partition size prior to flash.
 
 **CI is read-only.** Vendor API and VNDK properties remain honest; no arbitrary ABI-wide conversion is feasible from binary-only vendor files. Full Android16 compatibility requires device runtime evidence and potentially matching framework/system changes, especially face unlock. Native kernel development remains suspended by user request.
+
+## 5. Android 16 runtime verification on actual S8+
+
+Static CI scanned **768 vendor ELF files** (95 camera-related, 83 video-related, 26 face-related) with zero initial structural blockers, but this is NOT a passing live Android16 ABI/HAL test. To gather evidence without modifying the device:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/HaloT455/Vendor-45-/work/android16-vendor-compat/tools/collect_android16_vendor_runtime.sh -o ~/Downloads/ALICE_ANDROID16_RUNTIME.sh
+bash ~/Downloads/ALICE_ANDROID16_RUNTIME.sh
+```
+
+The script creates `~/Downloads/ALICE_A16_VENDOR_RUNTIME_*.tar.gz`. Review sensitive log lines before sharing. Check API36 framework, legacy VNDK33 APEX, linker failures, HIDL/AIDL registration, media codec and face services. Only replace real Exynos8895-native components with proven ABI-compatible counterparts. Keep the kernel suspended and preserve currently functional Samsung Camera still/preview stack.

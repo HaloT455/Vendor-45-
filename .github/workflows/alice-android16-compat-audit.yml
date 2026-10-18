@@ -4,6 +4,7 @@ on:
     branches: ["work/android16-vendor-compat"]
     paths:
       - "tools/audit_android16_vendor_abi.py"
+      - "tools/collect_android16_vendor_runtime.sh"
       - ".github/workflows/alice-android16-compat-audit.yml"
       - "docs/ALICE_ANDROID16_VENDOR_COMPAT_ROADMAP.md"
   workflow_dispatch:
@@ -28,6 +29,8 @@ jobs:
           test "$(git rev-parse refs/remotes/origin/baseline/test7)" = d5748652ddf1eb4cdc18d2f51cbbde8f6fd16170
       - name: Verify VNDK deprecation and no invented VNDK36
         run: python3 tools/audit_android16_vendor_abi.py --selftest
+      - name: Validate Android 16 runtime collector syntax
+        run: bash -n tools/collect_android16_vendor_runtime.sh
       - name: Enumerate all vendor ELF dependencies, VINTF, face and codec stack
         run: |
           python3 tools/audit_android16_vendor_abi.py --output out/android16-vendor-abi-audit.json
