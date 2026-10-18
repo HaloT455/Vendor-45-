@@ -5,6 +5,7 @@ on:
     paths:
       - "tools/probe_samsung_camera_8895.py"
       - "tools/camera_preview_contract.py"
+      - "tools/check_samsungcamera_key_permission.py"
       - "tools/s9_reference/**"
       - ".github/workflows/alice-samsung-camera-reference.yml"
   workflow_dispatch:
@@ -40,6 +41,8 @@ jobs:
           PY
       - name: Assert preview vendor-tag regression classifier
         run: python3 tools/camera_preview_contract.py --selftest
+      - name: Assert Samsung Camera system key permission classifier
+        run: python3 tools/check_samsungcamera_key_permission.py --selftest
       - name: Publish ABI report
         uses: actions/upload-artifact@v4
         with:
