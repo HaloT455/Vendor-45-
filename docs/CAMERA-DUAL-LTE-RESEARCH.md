@@ -49,3 +49,22 @@ Dual LTE:
 No vendor binary, kernel, modem or framework JAR is modified by this
 investigation. Native ABI probe produces `out/compat.json` from Test7.
 A successful CI reports offline integrity only.
+
+## Live Android 16 SIM evidence (2026-10-19; no device changes)
+- PhoneId 0 / SIM1: CS DENIED (UMTS), PS NOT_REG_OR_SEARCHING (UMTS), voice/data OUT_OF_SERVICE.
+- PhoneId 1 / SIM2 MobiFone: CS HOME (UMTS), PS HOME (HSUPA), voice/data IN_SERVICE.
+- Both user network masks contain LTE and LTE_CA, but neither SIM has demonstrated LTE registration.
+- mUserMobileDataState=false and mDataConnectionState=0 on both phones in this snapshot. Mobile data off is not an explanation for SIM1 CS DENIED.
+- rejectCause=0 indicates a missing/unknown explicit denial cause (Android NetworkRegistrationInfo), not success.
+- Old RAF=0 / invalid RadioCapability and CP "LTE configured on other stack" evidence are historical; they were not present in the latest filtered log. Re-check during active SIM hand-off.
+
+### Required controlled tests BEFORE radio firmware or vendor patches
+1. Keep a baseline with both SIMs inserted and capture the existing ALICE_A16_WWAN_RADIO_DIAG.py output.
+2. SIM2 MobiFone alone: select it as default mobile data, enable mobile data, use LTE/3G automatic and automatic network operator; capture the same output after service settles.
+3. SIM1 card alone: use LTE/3G automatic and automatic network operator. Capture same output. If still denied, test this physical SIM in another known-good LTE phone.
+4. If practical, swap physical cards between slots. Failure follows card => SIM/carrier/account; failure follows slot => RIL/CP role/slot hardware.
+5. For network role handoff failures, collect filtered radio logs around intentional switch of default data SIM; check getRadioCapability/RAF, setAllowedNetworkTypes, modem LTE rejection and real LTE registration (not just bitmasks).
+6. Confirm LTE attach with only one SIM first, then dynamic handoff between cards. Dual LTE simultaneously is not proven and may not be feasible on Exynos8895 DSDS CP.
+
+### Restrictions
+Do not modify CP firmware, IMEI/EFS/NV, modem bands, or ro.vndk.version for this test. Do not force LTE-only before voice/VoLTE is confirmed. CI alone cannot verify network registration.
