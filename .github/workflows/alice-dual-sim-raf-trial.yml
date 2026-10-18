@@ -1,12 +1,12 @@
-name: ALICE S8Plus Android16 radio RAF vendor trial (NOT FLASH READY)
+name: ALICE Android16 DSDS default network vendor test (UNTESTED)
 
 on:
   push:
     branches: ["work/dual-sim-lte-raf-trial"]
     paths:
-      - "tools/integrate_radio_raf_standalone.py"
-      - "tools/stage_radio_raf_overlay.py"
-      - "tools/test_radio_raf_staging.py"
+      - "vendor/build.prop"
+      - "vendor/etc/init/init.vendor.rilcommon.rc"
+      - "tools/test_vendor_config_fixes.py"
       - ".github/workflows/alice-dual-sim-raf-trial.yml"
   workflow_dispatch:
 
@@ -18,72 +18,59 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - name: Checkout ALICE experimental branch
+      - name: Checkout experimental ALICE vendor branch
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Check baseline and branch isolation
+      - name: Protect baseline and limit vendor edits to two radio config files
         shell: bash
         run: |
           set -euo pipefail
           test "$GITHUB_REF_NAME" = "work/dual-sim-lte-raf-trial"
           test "$(git rev-parse refs/remotes/origin/baseline/test7)" = "d5748652ddf1eb4cdc18d2f51cbbde8f6fd16170"
-          git diff --exit-code refs/remotes/origin/work/android16-vendor-compat HEAD -- vendor metadata
-      - name: Install host ELF and APK prerequisites
+          diff="$(git diff --name-only refs/remotes/origin/work/android16-vendor-compat HEAD -- vendor metadata)"
+          echo "$diff"
+          test "$diff" = "$(printf 'vendor/build.prop\nvendor/etc/init/init.vendor.rilcommon.rc')"
+      - name: Install image build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y binutils dpkg-dev zip unzip openjdk-17-jdk
-      - name: Verify preinstalled Android SDK command line
-        shell: bash
+          sudo apt-get install -y binutils dpkg-dev
+      - name: Verify legacy DSDS property list and radio VINTF
         run: |
-          set -euo pipefail
-          echo "ANDROID_HOME=${ANDROID_HOME:-<unset>}"
-          command -v sdkmanager
-          sdkmanager --version
-      - name: Install Android 16 framework resources and build tools
-        shell: bash
-        run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-36" "build-tools;36.0.0"
-          test -f "$ANDROID_HOME/platforms/android-36/android.jar"
-          test -x "$ANDROID_HOME/build-tools/36.0.0/aapt2"
-      - name: Validate trial scripts
-        run: |
-          python3 -m py_compile tools/stage_radio_raf_overlay.py tools/integrate_radio_raf_standalone.py tools/test_radio_raf_staging.py
-      - name: Build signed static Android16 RAF fallback overlay
-        run: |
-          python3 tools/stage_radio_raf_overlay.py --sdk "$ANDROID_HOME" --output out/ALICE-RadioRAF.apk
-          python3 tools/test_radio_raf_staging.py --apk out/ALICE-RadioRAF.apk
-      - name: Stage overlay in experimental vendor tree
-        run: |
-          python3 tools/integrate_radio_raf_standalone.py --apk out/ALICE-RadioRAF.apk
-          python3 tools/test_radio_raf_staging.py --apk vendor/overlay/ALICE-RadioRAF/ALICE-RadioRAF.apk --staged
-      - name: Install pinned EROFS tooling
+          python3 tools/test_vendor_config_fixes.py
+          python3 tools/audit_vendor_camera_ril.py --output out/ril-audit.json
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("vendor/build.prop").read_text()
+          assert p.count("ro.telephony.default_network=9,9\n") == 1
+          assert "ro.vndk.version=33" in p
+          assert "ro.vendor.build.version.sdk=33" in p
+          print("PASS: Android16 two-phone default network config; legacy VNDK retained")
+          PY
+      - name: Install reproducible EROFS tooling
         run: python3 tools/setup_erofs.py
-      - name: Verify vendor tree/metadata consistency
+      - name: Verify changed vendor contents without changing original manifest
         run: python3 tools/build_vendor.py --verify-only --allow-file-changes
-      - name: Build EROFS research image with overflow headroom
+      - name: Build experimental DSDS vendor.img with headroom, not for flashing
         run: |
-          python3 tools/build_vendor.py --allow-file-changes --max-image-bytes 498417664 --output out/vendor-radio-raf-UNTESTED.img
-      - name: Publish audit and safety notice
+          python3 tools/build_vendor.py --allow-file-changes --max-image-bytes 498417664 --output out/vendor-dsds-default9x2-UNTESTED.img
+      - name: Explain image safety boundaries
         if: always()
         shell: bash
         run: |
-          echo "RESEARCH ONLY: no live idmap or LTE attach checks performed" >> "$GITHUB_STEP_SUMMARY"
-          echo "SIM1 registration DENIED cannot be fixed by falsely reporting capability." >> "$GITHUB_STEP_SUMMARY"
-          echo "DO NOT FLASH vendor-radio-raf-UNTESTED.img until size, VINTF, idmap, rollback and live checks pass." >> "$GITHUB_STEP_SUMMARY"
-          test ! -f out/vendor-radio-raf-UNTESTED.report.json || cat out/vendor-radio-raf-UNTESTED.report.json
-      - name: Upload experimental image and radio report
+          echo "DSDS 9,9 fixes per-phone default selection only. No proof of LTE attach or simultaneous Dual LTE." >> "$GITHUB_STEP_SUMMARY"
+          echo "This test image MUST NOT be flashed until real vendor partition size and recovery rollback are established." >> "$GITHUB_STEP_SUMMARY"
+          test ! -f out/vendor-dsds-default9x2-UNTESTED.report.json || cat out/vendor-dsds-default9x2-UNTESTED.report.json
+      - name: Retain experimental EROFS image
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ALICE-S8Plus-A16-RAF-VENDOR-UNTESTED-DO-NOT-FLASH
+          name: ALICE-S8Plus-A16-DSDS-DEFAULT9x2-UNTESTED-DO-NOT-FLASH
           retention-days: 7
           compression-level: 1
           if-no-files-found: warn
           path: |
-            out/ALICE-RadioRAF.apk
-            out/alice-raf-stage-report.json
-            out/vendor-radio-raf-UNTESTED.img
-            out/vendor-radio-raf-UNTESTED.report.json
+            out/ril-audit.json
+            out/vendor-dsds-default9x2-UNTESTED.img
+            out/vendor-dsds-default9x2-UNTESTED.report.json
