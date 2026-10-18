@@ -18,8 +18,9 @@ assert "property:ro.build.fingerprint=" not in rc
 assert "mount none /vendor/etc/alice-test7/camera-feature.xml /system/cameradata/camera-feature.xml bind" in rc
 assert (root / "vendor/etc/alice-test7/camera-feature.xml").is_file()
 ril = (root / "vendor/etc/init/init.vendor.rilcommon.rc").read_text()
-assert "setprop ro.telephony.default_network ${ro.vendor.sec.radio.def_network}" in ril
+assert "setprop ro.telephony.default_network" not in ril, "do not rewrite read-only default at post-fs-data"
 assert "setprop ro.telephony.default_network ${ro.vendor.radio.default_network}" not in ril
 props = (root / "vendor/build.prop").read_text()
 assert "ro.vendor.sec.radio.def_network=9\n" in props
-print("PASS: Test7 init mode, camera mount trigger, RIL property wiring")
+assert props.count("ro.telephony.default_network=9,9\n") == 1, "Android 16 DSDS requires per-phone default list"
+print("PASS: Test7 init mode, camera mount trigger, two-SIM default_network=9,9, no late ro override")
