@@ -1,34 +1,40 @@
-# ALICE S8+ / Android 16: standalone RAF fallback trial
+# ALICE S8+ Android 16 — DSDS per-SIM network default vendor trial
 
-**Status: experimental, NOT FLASH READY. Do not flash the generated image.**
+**Experimental vendor image. NOT FLASH READY.**
 
-## Evidence
+## Observed evidence
 
-The 2026-10-19 runtime capture shows SIM1 PhoneId0 registration CS=DENIED / PS=NOT_REG_OR_SEARCHING on UMTS, SIM2 MobiFone PhoneId1 CS=HOME on UMTS and PS=HOME on HSUPA. Both user allowed network masks contain LTE, but this does not prove LTE attachment. User mobile data was disabled at the time of capture. Previous traces (not the latest) showed invalid RadioCapability responses and RIL fake RAF=0.
+2026-10-19 logs from Exynos8895 Android 16:
+- SIM1 / PhoneId0: CS DENIED on UMTS, PS NOT_REG_OR_SEARCHING, OUT_OF_SERVICE.
+- SIM2 MobiFone / PhoneId1: CS HOME on UMTS, PS HOME on HSUPA, IN_SERVICE.
+- LTE and LTE_CA appear in both allowed bitmasks, neither SIM has proven real LTE registration.
+- Both mUserMobileDataState=false in the capture. This cannot explain SIM1 CS registration DENIED.
 
-## Vendor change
+## Exact vendor changes
 
-This branch adds a narrowly-scoped *static Radio Access Family fallback* resource overlay containing `config_radio_access_family = GSM|WCDMA|LTE`. AOSP documents this value as a fallback **only for a RIL that does not support GET_RADIO_CAPABILITY**, not as a way to add LTE bands or physically upgrade the modem. This can potentially stop Android Telephony treating unknown radio capability as RAF 0.
+1. `vendor/build.prop` now declares `ro.telephony.default_network=9,9` (an Android sysprop IntegerList) instead of relying on a single default value `9`. Each value 9 means GSM/WCDMA/LTE auto, **not LTE-only**, and does not imply both SIMs can register LTE concurrently.
+2. `vendor/etc/init/init.vendor.rilcommon.rc` no longer tries to set the read-only `ro.telephony.default_network` property late, during `post-fs-data`, using a single-SIM integer. The original Samsung `network_config` remains.
+3. Tests verify the two existing HIDL slot instances and the original Android 13 VNDK33 HAL contract. No CP/IMEI/EFS change.
 
-The signed RRO is integrated via `tools/integrate_radio_raf_standalone.py` into the vendor EROFS tree in CI. The integration changes only the experimental checkout's vendor overlay and EROFS metadata; no original vendor blobs are recompiled or changed.
+Supporting reference: AOSP TelephonyProperties.sysprop defines `ro.telephony.default_network` as `IntegerList`: https://android.googlesource.com/platform/system/libsysprop/+/refs/heads/master/srcs/android/sysprop/TelephonyProperties.sysprop
+Samsung Exynos9810 Lineage device example: https://github.com/LineageOS/android_device_samsung_exynos9810-common/blob/lineage-20/vendor.prop
 
-Official AOSP reference: https://android.googlesource.com/platform/frameworks/base/+/android16-qpr1-release/core/res/res/values/config.xml
-Static RAF legacy framework logic: https://android.googlesource.com/platform/frameworks/opt/telephony/+/3ad0c75%5E%21/
+## RAF overlay finding: redundant experiment NOT included
 
-## Limitations / gates
+The original `vendor/overlay/framework-res__auto_generated_rro_vendor.apk` **already contains** the resource name `config_radio_access_family` and the literal `GSM|CDMA|EVDO|WCDMA|LTE`. Adding another RRO claiming to restore this string would have no justified benefit, and might shadow existing modem configuration. Earlier staged RRO tooling remains archived under tools/ for research, but the active CI deliberately does not use or package it.
 
-1. The exact installed One UI 8 Android16 framework and overlayable policy are not fully verified. The RRO may be rejected by idmap or overridden by a higher-priority overlay. Verify using `cmd overlay list --user 0 android` and the Android framework's effective resource, without publishing personal data.
-2. AOSP RIL fallback only applies to certain error responses. If the modem returns an invalid success payload instead, this may require a **system/framework-side** compatibility change rather than a vendor RRO.
-3. SIM1 CS=DENIED remains unexplained by RAF=0 alone; independently check card in both slots, carrier provisioning, and explicit modem registration errors.
-4. The Galaxy S8+ Exynos8895 CP may limit LTE registration to one stack. **This trial does not promise Dual LTE simultaneous**.
-5. CI builds an EROFS research image with up to 16 MiB extra headroom. This is a build ceiling, **not** an assertion that the physical vendor partition has this capacity. The image must not be flashed before exact target partition geometry, rollback and live idmap are verified.
-6. Preserve IMEI/EFS, CP, modem NV, baseband and kernel. No ADB property forcing of LTE-only or false bands.
-7. New experimental branch only. `baseline/test7` and `work/android16-vendor-compat` remain intact.
+An earlier log recorded `GET_RADIO_CAPABILITY` invalid response and fake RAF=0. This is historical, not reproduced in the most recent log. If framework continues using RAF0 after confirming a compatible overlay and default network list, the remaining issue is probably at the radio HAL/framework callback or modem response, not a missing resource.
 
-## CI
+## What this cannot prove
 
-Open the workflow `ALICE S8Plus Android16 radio RAF vendor trial (NOT FLASH READY)` on branch `work/dual-sim-lte-raf-trial`. It builds and signs a separate RRO APK, stages EROFS metadata, runs offline checks and attempts to produce `vendor-radio-raf-UNTESTED.img`. Passing CI does not prove radio functionality.
+- That the installed Android 16 system accepts the new vendor default ahead of its own `ro.telephony.default_network=9` property. The runtime value must be checked before claiming this change took effect.
+- That SIM1 registration denied by the network is repaired.
+- That SIM2 successfully registers LTE instead of HSUPA.
+- That the modem supports simultaneous Dual 4G; Exynos8895 DSDS may allow only one LTE-capable stack.
+- That the experimental EROFS image fits the actual physical vendor partition. The CI image has a research size ceiling larger than the original image. **Do not flash without checking partition geometry and a tested rollback path.**
 
-## Rollback
+## CI and rollback
 
-Do not install until full target verification. A rollback plan requires retaining the known-booting Test7 `vendor.img`, ensuring recovery/TWRP access and validating checksums before any flash. To revert the repository experiment, leave this branch and use `work/android16-vendor-compat`. No changes to IMEI/EFS are permitted.
+Branch: `work/dual-sim-lte-raf-trial`. The original `baseline/test7` and the `work/android16-vendor-compat` branch remain unchanged. Workflow produces `vendor-dsds-default9x2-UNTESTED.img` and a verification report. The report is an offline structural result only.
+
+Safe rollback is returning to the previously verified booting Test7 image through a proven recovery procedure. Never clear EFS/NV or experiment on modem calibration.
