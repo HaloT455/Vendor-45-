@@ -19,6 +19,7 @@
 #define LOG(...) __android_log_print(ANDROID_LOG_ERROR,"ALICE_CameraPreview",__VA_ARGS__)
 #define PREVIEW_TAG 0x80030000u
 #define PICTURE_TAG 0x80030001u
+#define VIDEO_TAG 0x80030002u /* experimental: Samsung video contract unverified */
 #define AOSP_STREAM_CONFIGS 0x000d000au
 #define FMT_IMPLEMENTATION_DEFINED 34
 #define FMT_BLOB 33
@@ -125,7 +126,7 @@ static int tag_count(const vendor_tag_ops_t *ops) {
     (void)ops;
     int old = legacy_ops.get_tag_count ?
         legacy_ops.get_tag_count(&legacy_ops) : 0;
-    return old >= 0 && old < 4094 ? old + 2 : -1;
+    return old >= 0 && old < 4094 ? old + 3 : -1;
 }
 static void all_tags(const vendor_tag_ops_t *ops,uint32_t *tags) {
     (void)ops;
@@ -137,10 +138,11 @@ static void all_tags(const vendor_tag_ops_t *ops,uint32_t *tags) {
         legacy_ops.get_all_tags(&legacy_ops,tags);
     tags[old] = PREVIEW_TAG;
     tags[old+1] = PICTURE_TAG;
+    tags[old+2] = VIDEO_TAG;
 }
 static const char *section_name(const vendor_tag_ops_t *ops,uint32_t tag) {
     (void)ops;
-    if (tag == PREVIEW_TAG || tag == PICTURE_TAG) return "samsung.android.scaler";
+    if (tag == PREVIEW_TAG || tag == PICTURE_TAG || tag == VIDEO_TAG) return "samsung.android.scaler";
     return legacy_ops.get_section_name ?
         legacy_ops.get_section_name(&legacy_ops,tag) : NULL;
 }
@@ -148,12 +150,13 @@ static const char *tag_name(const vendor_tag_ops_t *ops,uint32_t tag) {
     (void)ops;
     if (tag == PREVIEW_TAG) return "availablePreviewStreamConfigurations";
     if (tag == PICTURE_TAG) return "availablePictureStreamConfigurations";
+    if (tag == VIDEO_TAG) return "availableVideoConfigurations";
     return legacy_ops.get_tag_name ?
         legacy_ops.get_tag_name(&legacy_ops,tag) : NULL;
 }
 static int tag_type(const vendor_tag_ops_t *ops,uint32_t tag) {
     (void)ops;
-    if (tag == PREVIEW_TAG || tag == PICTURE_TAG) return 1; /* TYPE_INT32 */
+    if (tag == PREVIEW_TAG || tag == PICTURE_TAG || tag == VIDEO_TAG) return 1; /* TYPE_INT32 */
     return legacy_ops.get_tag_type ?
         legacy_ops.get_tag_type(&legacy_ops,tag) : -1;
 }
@@ -174,7 +177,7 @@ static bool prepare_ops(void) {
     uint32_t tags[256]={0};
     legacy_ops.get_all_tags(&legacy_ops,tags);
     for (int i=0;i<count;i++) {
-        if (tags[i]==PREVIEW_TAG || tags[i]==PICTURE_TAG) {
+        if (tags[i]==PREVIEW_TAG || tags[i]==PICTURE_TAG || tags[i]==VIDEO_TAG) {
             LOG("Synthetic Samsung scaler tag collides with stock vendor tag; disabled");
             return false;
         }
@@ -287,18 +290,19 @@ static camera_metadata_t *augment(const camera_metadata_t *original) {
     const size_t old_count=entries(original), old_data=bytes(original);
     if(old_count>4096 || old_data>(1u<<22))return NULL;
     const size_t extra_bytes=(preview_n+picture_n)*4*sizeof(int32_t);
-    camera_metadata_t *merged=alloc(old_count+3,old_data+extra_bytes+1024);
+    camera_metadata_t *merged=alloc(old_count+4,old_data+extra_bytes*2+1024);
     if(!merged)return NULL;
     if(get_id&&set_id)set_id(merged,get_id(original));
     if(append(merged,original)!=0 ||
        add(merged,PREVIEW_TAG,preview_config,preview_n*4)!=0 ||
        add(merged,PICTURE_TAG,picture_config,picture_n*4)!=0 ||
+       add(merged,VIDEO_TAG,preview_config,preview_n*4)!=0 ||
        sort(merged)!=0) {
         LOG("Preview/photo metadata augmentation rejected by system metadata library");
         release(merged);
         return NULL;
     }
-    LOG("Added Samsung scaler vendor metadata: %zu preview and %zu real JPEG output sizes",
+    LOG("EXPERIMENTAL Samsung VIDEO_TAG shape unverified; added %zu preview and %zu real JPEG output sizes",
         preview_n,picture_n);
     return merged; /* camera_info pointers must remain valid for module lifetime */
 }
