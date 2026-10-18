@@ -43,6 +43,7 @@ def main():
                              ("ALICE preview bridge",compiled)):
             assert payload[:4]==b"\x7fELF" and payload[4]==expected_class,(what,abi)
         assert b"availablePreviewStreamConfigurations" in compiled
+        assert b"availablePictureStreamConfigurations" in compiled
         assert b"camera.alice-hlong.universal8895.so" in compiled
         staging.append((abi,src,dst,item,previous,compiled))
     next_nid=max(e["nid"] for e in manifest.values())+512
@@ -69,11 +70,13 @@ def main():
     assert len(j["entries"])==1433
     report={"changes":changes,"image_entries_after_bridge":1433,
             "samsung_preview_tag":"samsung.android.scaler.availablePreviewStreamConfigurations",
-            "expected_vendor_tag_type":"int32 stream configuration tuples",
+            "samsung_picture_tag":"samsung.android.scaler.availablePictureStreamConfigurations",
+            "expected_vendor_tag_type":"int32 stream configuration tuples; format 34 PRIVATE for preview and format 33 BLOB for JPEG",
             "stock_samsung_vendor_tags_preserved_by_delegation":True,
             "actual_provider_registration_verified":False,
             "actual_camera2_metadata_verified":False,
             "samsung_apk_16_5_preview_verified":False,
+            "samsung_apk_16_5_picture_verified":False,
             "boot_verified":False,"flash_ready":False}
     args.report.parent.mkdir(parents=True,exist_ok=True)
     args.report.write_text(json.dumps(report,indent=2)+"\n")

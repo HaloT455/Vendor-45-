@@ -1,7 +1,7 @@
 /*
  * ALICE Exynos8895 Samsung Camera metadata compatibility experiment.
  * Derived from documented AOSP camera_module_t ABI, not S9+ ARM opcodes.
- * Keeps the pinned UN1GAGA wrapper as delegate; adds one Samsung preview tag.
+ * Keeps the pinned UN1GAGA wrapper as delegate; adds Samsung preview AND still-picture vendor metadata tags.
  * Native code never touches CP, EFS or existing Samsung Camera APK.
  *
  * EXPERIMENTAL: API + ELF CI validation != safe to flash / working camera.
@@ -18,8 +18,10 @@
 
 #define LOG(...) __android_log_print(ANDROID_LOG_ERROR,"ALICE_CameraPreview",__VA_ARGS__)
 #define PREVIEW_TAG 0x80030000u
+#define PICTURE_TAG 0x80030001u
 #define AOSP_STREAM_CONFIGS 0x000d000au
 #define FMT_IMPLEMENTATION_DEFINED 34
+#define FMT_BLOB 33
 #define OUTPUT 0
 #define MAX_CAMERAS 8
 #define MAX_SIZE_TUPLES 128
@@ -123,33 +125,35 @@ static int tag_count(const vendor_tag_ops_t *ops) {
     (void)ops;
     int old = legacy_ops.get_tag_count ?
         legacy_ops.get_tag_count(&legacy_ops) : 0;
-    return old >= 0 && old < 4096 ? old + 1 : -1;
+    return old >= 0 && old < 4094 ? old + 2 : -1;
 }
 static void all_tags(const vendor_tag_ops_t *ops,uint32_t *tags) {
     (void)ops;
     if (!tags) return;
     int old = legacy_ops.get_tag_count ?
         legacy_ops.get_tag_count(&legacy_ops) : 0;
-    if (old < 0 || old >= 4096) return;
+    if (old < 0 || old >= 4094) return;
     if (old && legacy_ops.get_all_tags)
         legacy_ops.get_all_tags(&legacy_ops,tags);
     tags[old] = PREVIEW_TAG;
+    tags[old+1] = PICTURE_TAG;
 }
 static const char *section_name(const vendor_tag_ops_t *ops,uint32_t tag) {
     (void)ops;
-    if (tag == PREVIEW_TAG) return "samsung.android.scaler";
+    if (tag == PREVIEW_TAG || tag == PICTURE_TAG) return "samsung.android.scaler";
     return legacy_ops.get_section_name ?
         legacy_ops.get_section_name(&legacy_ops,tag) : NULL;
 }
 static const char *tag_name(const vendor_tag_ops_t *ops,uint32_t tag) {
     (void)ops;
     if (tag == PREVIEW_TAG) return "availablePreviewStreamConfigurations";
+    if (tag == PICTURE_TAG) return "availablePictureStreamConfigurations";
     return legacy_ops.get_tag_name ?
         legacy_ops.get_tag_name(&legacy_ops,tag) : NULL;
 }
 static int tag_type(const vendor_tag_ops_t *ops,uint32_t tag) {
     (void)ops;
-    if (tag == PREVIEW_TAG) return 1; /* TYPE_INT32 */
+    if (tag == PREVIEW_TAG || tag == PICTURE_TAG) return 1; /* TYPE_INT32 */
     return legacy_ops.get_tag_type ?
         legacy_ops.get_tag_type(&legacy_ops,tag) : -1;
 }
@@ -170,8 +174,8 @@ static bool prepare_ops(void) {
     uint32_t tags[256]={0};
     legacy_ops.get_all_tags(&legacy_ops,tags);
     for (int i=0;i<count;i++) {
-        if (tags[i]==PREVIEW_TAG) {
-            LOG("ID 0x80030000 collides with stock vendor tag; disabled");
+        if (tags[i]==PREVIEW_TAG || tags[i]==PICTURE_TAG) {
+            LOG("Synthetic Samsung scaler tag collides with stock vendor tag; disabled");
             return false;
         }
     }
@@ -233,37 +237,69 @@ static camera_metadata_t *augment(const camera_metadata_t *original) {
         available.type!=1 || available.count<4 ||
         (available.count%4)!=0 || !available.data.i32)
         {LOG("No typed AOSP stream metadata");return NULL;}
-    int32_t config[MAX_SIZE_TUPLES*4];
-    size_t n=0;
+
+    /* Keep full HAL stream tuple ABI: [pixel_format, width, height, output=0].
+     * Do not replace BLOB/JPEG with PRIVATE=34 or invent sizes. Samsung
+     * SemCameraCharacteristics reads the full four-int structure for each. */
+    int32_t preview_config[MAX_SIZE_TUPLES*4];
+    int32_t picture_config[MAX_SIZE_TUPLES*4];
+    size_t preview_n=0, picture_n=0;
     for (size_t i=0;i<available.count;i+=4) {
         int32_t fmt=available.data.i32[i];
         int32_t w=available.data.i32[i+1];
         int32_t h=available.data.i32[i+2];
         int32_t direction=available.data.i32[i+3];
-        if(fmt!=FMT_IMPLEMENTATION_DEFINED||direction!=OUTPUT||
-           w<=0||h<=0||w>8192||h>8192) continue;
-        bool dup=false;
-        for(size_t j=0;j<n;j++)
-            if(config[4*j+1]==w && config[4*j+2]==h) {dup=true;break;}
-        if(dup) continue;
-        if(n==MAX_SIZE_TUPLES) break;
-        config[4*n]=fmt;config[4*n+1]=w;
-        config[4*n+2]=h;config[4*n+3]=OUTPUT;
-        n++;
+        if(direction!=OUTPUT||w<=0||h<=0||w>8192||h>8192) continue;
+        int32_t *target;
+        size_t *count;
+        if(fmt==FMT_IMPLEMENTATION_DEFINED) {
+            target=preview_config;
+            count=&preview_n;
+        } else if(fmt==FMT_BLOB) {
+            target=picture_config;
+            count=&picture_n;
+        } else {
+            continue;
+        }
+        bool duplicate=false;
+        for(size_t j=0;j<*count;j++) {
+            if(target[4*j+1]==w && target[4*j+2]==h) {
+                duplicate=true;
+                break;
+            }
+        }
+        if(duplicate) continue;
+        if(*count>=MAX_SIZE_TUPLES) {
+            LOG("Samsung stream list exceeds capacity; disabling augmentation");
+            return NULL;
+        }
+        const size_t pos=4*(*count);
+        target[pos]=fmt;
+        target[pos+1]=w;
+        target[pos+2]=h;
+        target[pos+3]=OUTPUT;
+        ++*count;
     }
-    if (!n) {LOG("No real preview streams to map");return NULL;}
+    if(!preview_n || !picture_n) {
+        LOG("Missing real 34/private preview or 33/BLOB JPEG output sizes");
+        return NULL;
+    }
     const size_t old_count=entries(original), old_data=bytes(original);
     if(old_count>4096 || old_data>(1u<<22))return NULL;
-    camera_metadata_t *merged=alloc(old_count+2,old_data+sizeof(config));
-    if(!merged) return NULL;
-    if(get_id&&set_id) set_id(merged,get_id(original));
+    const size_t extra_bytes=(preview_n+picture_n)*4*sizeof(int32_t);
+    camera_metadata_t *merged=alloc(old_count+3,old_data+extra_bytes+1024);
+    if(!merged)return NULL;
+    if(get_id&&set_id)set_id(merged,get_id(original));
     if(append(merged,original)!=0 ||
-       add(merged,PREVIEW_TAG,config,n*4)!=0 || sort(merged)!=0) {
-        LOG("Metadata augmentation rejected by system camera metadata library");
+       add(merged,PREVIEW_TAG,preview_config,preview_n*4)!=0 ||
+       add(merged,PICTURE_TAG,picture_config,picture_n*4)!=0 ||
+       sort(merged)!=0) {
+        LOG("Preview/photo metadata augmentation rejected by system metadata library");
         release(merged);
         return NULL;
     }
-    LOG("Added Samsung preview metadata: %zu real stream configurations",n);
+    LOG("Added Samsung scaler vendor metadata: %zu preview and %zu real JPEG output sizes",
+        preview_n,picture_n);
     return merged; /* camera_info pointers must remain valid for module lifetime */
 }
 static int wrapped_get_info(int id,camera_info_t *info) {

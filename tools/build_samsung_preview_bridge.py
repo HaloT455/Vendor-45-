@@ -43,9 +43,10 @@ def main():
         data=dest.read_bytes()
         assert b"samsung.android.scaler" in data
         assert b"availablePreviewStreamConfigurations" in data
+        assert b"availablePictureStreamConfigurations" in data
         assert b"camera.alice-hlong.universal8895.so" in data
         report["targets"].append({"abi":abi,"target":triple,"sha256":hashlib.sha256(data).hexdigest(),
-                                   "bytes":len(data),"path":str(dest),"camera_module_HMI":True})
+                                   "bytes":len(data),"path":str(dest),"camera_module_HMI":True, "samsung_scaler_tag_names":["availablePreviewStreamConfigurations","availablePictureStreamConfigurations"]})
     output.mkdir(parents=True,exist_ok=True)
     (output/"build-report.json").write_text(json.dumps(report,indent=2)+"\n")
     print(json.dumps(report,indent=2))
