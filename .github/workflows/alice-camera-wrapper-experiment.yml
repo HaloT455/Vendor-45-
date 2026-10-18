@@ -86,6 +86,14 @@ jobs:
             readelf --dyn-syms --wide "vendor/$abi/hw/camera.universal8895.so" | grep -E '[[:space:]]HMI$'
             readelf -d "vendor/$abi/hw/camera.universal8895.so" | grep -F liblog.so
           done
+      - name: Verify Face HAL payload and declaration are preserved
+        run: |
+          set -euo pipefail
+          grep -q 'android.hardware.biometrics.face' vendor/etc/vintf/manifest/face-default-sec.xml
+          grep -q 'sec-biometrics-face-aidl' vendor/etc/init/face-default-sec.rc
+          test -s vendor/bin/hw/vendor.samsung.hardware.biometrics.face-service
+          test -s vendor/apex/com.samsung.android.biometrics.face.signed.apex
+          echo "Face HAL files present. Enrollment/unlock NOT verified without device runtime."
       - name: Compile static GSM/WCDMA/LTE RAF fallback for unsupported RIL
         run: |
           python3 tools/stage_radio_raf_overlay.py \
@@ -125,8 +133,8 @@ jobs:
           for f in out/camera-integration-trial.json out/samsung-preview-bridge-trial.json out/alice-radio-raf-trial.json out/vendor.report.json; do
             if [ -f "$f" ]; then cat "$f"; fi
           done
-          echo "## vendor.img — Exynos8895 Samsung preview vendor-tag compatibility + radio experiment" >> "$GITHUB_STEP_SUMMARY"
-          echo "Compiled OEM metadata bridge, tested ELF/EROFS only. SamsungCamera 16.5 preview, idmap, actual device boot, and LTE have NOT been tested. **DO NOT FLASH.**" >> "$GITHUB_STEP_SUMMARY"
+          echo "## vendor.img — experimental Samsung video-tag compatibility + radio research" >> "$GITHUB_STEP_SUMMARY"
+          echo "Compiled OEM metadata bridge, tested ELF/EROFS only. SamsungCamera 16.5 preview, idmap, actual device boot, and LTE have NOT been tested. **DO NOT FLASH: Samsung video tag data layout and Face HAL are not device-validated.**" >> "$GITHUB_STEP_SUMMARY"
           if [ -f out/SHA256SUMS ]; then cat out/SHA256SUMS >> "$GITHUB_STEP_SUMMARY"; fi
       - name: Retain experimental image for analysis (3 days)
         if: always()
