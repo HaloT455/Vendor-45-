@@ -34,8 +34,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y binutils dpkg-dev zip unzip openjdk-17-jdk
-      - name: Setup Android SDK command line
-        uses: android-actions/setup-android@v3
+      - name: Verify preinstalled Android SDK command line
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "ANDROID_HOME=${ANDROID_HOME:-<unset>}"
+          command -v sdkmanager
+          sdkmanager --version
       - name: Install Android 16 framework resources and build tools
         shell: bash
         run: |
