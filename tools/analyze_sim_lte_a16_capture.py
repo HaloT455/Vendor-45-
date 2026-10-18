@@ -50,6 +50,33 @@ def per_phone_state(raw):
     return states
 
 
+def terrestrial_wwan_states(raw):
+    """Expose only domain/registration/RAT/rejectCause, never cell or operator IDs."""
+    base=raw.split("last known state:",1)[-1]
+    marks=list(re.finditer(r"(?m)^\s*Phone Id\s*=\s*([01])\s*$",base))
+    result=[]
+    for i, mark in enumerate(marks):
+        slot=int(mark.group(1))
+        end=marks[i+1].start() if i+1<len(marks) else len(base)
+        block=base[mark.end():end]
+        state=next((line for line in block.splitlines() if re.match(r"^\s*mServiceState=",line)), "")
+        entries=[]
+        for item in re.finditer(r"NetworkRegistrationInfo\s*\{\s*([^{}]*)", state):
+            fields=item.group(1).split("cellIdentity=",1)[0]
+            def safe(key):
+                hit=re.search(r"\b"+re.escape(key)+r"\s*=\s*([A-Za-z0-9_+.-]+)",fields)
+                return hit.group(1) if hit else "?"
+            if safe("transportType")!="WWAN":
+                continue
+            reg=safe("networkRegistrationState")
+            if reg=="?":reg=safe("registrationState")
+            if reg=="?":reg=safe("regState")
+            entry=(safe("domain"),reg,safe("accessNetworkTechnology"),safe("rejectCause"))
+            if entry not in entries:entries.append(entry)
+        result.append((slot,entries[:8]))
+    return result
+
+
 def analyze(folder):
  if not folder.is_dir():raise SystemExit(f"Missing capture folder: {folder}")
  print("=== ALICE S8+ Android16 SIM LTE read-only summary ===")
@@ -72,6 +99,13 @@ def analyze(folder):
   print("  Phone Id records unavailable; do not assign global service states to SIMs.")
  for phone, voice, data, rat in per_phone:
   print(f"  SIM{phone+1}/PhoneId{phone}: voice={voice} data={data} RAT={rat}")
+ print("TERRESTRIAL WWAN registration by SIM (not IWLAN/WLAN):")
+ for slot, entries in terrestrial_wwan_states(read(folder,"service_telephony_registry.txt")):
+  if entries:
+   for domain,reg,tech,reject in entries:
+    print(f"  SIM{slot+1} {domain} register={reg} cellular_RAT={tech} rejectCause={reject}")
+  else:
+   print(f"  SIM{slot+1}: no WWAN registration details in captured TelephonyRegistry")
  print("Radio registration fields (not attributed to individual SIM unless phoneId is present):")
  for n in ("service_phone.txt","service_telephony_registry.txt"):
   body=read(folder,n)
