@@ -66,6 +66,9 @@ ro.carrier=unknown
 # Removed by post_process_props.py because overridden by ro.config.alarm_alert=Homecoming.ogg
 #ro.config.alarm_alert?=Alarm_Classic.ogg
 ro.vendor.sec.radio.def_network=9
+# Per-phone Android16 default modes: SIM1 and SIM2 both LTE/GSM/WCDMA-capable.
+# This does not activate simultaneous LTE in the legacy Exynos8895 modem.
+ro.telephony.default_network=9,9
 ro.radio.noril=no
 ro.telephony.default_cdma_sub=0
 ro.vendor.epdg.support=true
