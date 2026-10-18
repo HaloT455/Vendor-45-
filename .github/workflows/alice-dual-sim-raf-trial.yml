@@ -29,7 +29,7 @@ jobs:
           set -euo pipefail
           test "$GITHUB_REF_NAME" = "work/dual-sim-lte-raf-trial"
           test "$(git rev-parse refs/remotes/origin/baseline/test7)" = "d5748652ddf1eb4cdc18d2f51cbbde8f6fd16170"
-          git diff --exit-code refs/remotes/origin/work/android16-vendor-compat HEAD -- vendor metadata || true
+          git diff --exit-code refs/remotes/origin/work/android16-vendor-compat HEAD -- vendor metadata
       - name: Install host ELF and APK prerequisites
         run: |
           sudo apt-get update
