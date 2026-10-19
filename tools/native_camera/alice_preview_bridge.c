@@ -1,7 +1,7 @@
 /*
  * ALICE Exynos8895 Samsung Camera metadata compatibility experiment.
  * Derived from documented AOSP camera_module_t ABI, not S9+ ARM opcodes.
- * Keeps the pinned UN1GAGA wrapper as delegate; adds Samsung preview AND still-picture vendor metadata tags.
+ * Keeps the pinned UN1GAGA wrapper as delegate; adds Samsung preview, still-picture and video metadata tags.
  * Native code never touches CP, EFS or existing Samsung Camera APK.
  *
  * EXPERIMENTAL: API + ELF CI validation != safe to flash / working camera.
@@ -19,8 +19,17 @@
 #define LOG(...) __android_log_print(ANDROID_LOG_ERROR,"ALICE_CameraPreview",__VA_ARGS__)
 #define PREVIEW_TAG 0x80030000u
 #define PICTURE_TAG 0x80030001u
-#define VIDEO_TAG 0x80030002u /* experimental: Samsung video contract unverified */
+#define VIDEO_TAG 0x80030002u
 #define AOSP_STREAM_CONFIGS 0x000d000au
+#define AOSP_MIN_FRAME_DURATIONS 0x000d000bu
+#define AOSP_AE_FPS_RANGES 0x00010014u
+#define TYPE_INT32 1
+#define TYPE_INT64 3
+#define VIDEO_FPS 30
+/* Real Samsung Exynos HAL emits 6-int video tuples: w,h,minFps,maxFps,crop,timeLimit.
+ * Never use [pixelFormat,width,height,direction] here. Source:
+ * ExynosCameraMetadataConverterVendor::m_createVendorControlAvailableVideoConfigurations */
+#define VIDEO_FIELDS 6
 #define FMT_IMPLEMENTATION_DEFINED 34
 #define FMT_BLOB 33
 #define OUTPUT 0
@@ -287,23 +296,79 @@ static camera_metadata_t *augment(const camera_metadata_t *original) {
         LOG("Missing real 34/private preview or 33/BLOB JPEG output sizes");
         return NULL;
     }
+
+    /* The current S8+ Camera2 dump advertises the fixed [30,30] AE FPS range
+     * and 33331760ns minimum frame duration for supported PRIVATE streams.
+     * Build Samsung video tuples only for REAL supported resolution + FPS
+     * combinations, rather than treating preview format 34 as an FPS limit.
+     * Conservative 1080p cap intentionally excludes unverified UHD/60fps. */
+    camera_metadata_ro_entry_t ae_fps={0}, min_durations={0};
+    if(find(original,AOSP_AE_FPS_RANGES,&ae_fps)!=0 ||
+       ae_fps.type!=TYPE_INT32 || (ae_fps.count%2)!=0 ||
+       !ae_fps.data.i32 ||
+       find(original,AOSP_MIN_FRAME_DURATIONS,&min_durations)!=0 ||
+       min_durations.type!=TYPE_INT64 || (min_durations.count%4)!=0 ||
+       !min_durations.data.i64) {
+        LOG("Missing typed native AE FPS / minimum frame duration, refuse video metadata");
+        return NULL;
+    }
+    bool has_30fps=false;
+    for(size_t i=0;i<ae_fps.count;i+=2) {
+        if(ae_fps.data.i32[i]==VIDEO_FPS &&
+           ae_fps.data.i32[i+1]==VIDEO_FPS) {has_30fps=true; break;}
+    }
+    if(!has_30fps) {
+        LOG("No real fixed 30fps AE mode, refuse Samsung video metadata");
+        return NULL;
+    }
+    int32_t video_config[MAX_SIZE_TUPLES*VIDEO_FIELDS];
+    size_t video_n=0;
+    for(size_t i=0;i<preview_n;i++) {
+        int32_t w=preview_config[4*i+1], h=preview_config[4*i+2];
+        /* Standard 30fps recording only: checked against both actual
+         * AOSP output stream size and minFrameDuration per camera. */
+        if(w<640 || h<360 || w>1920 || h>1080) continue;
+        bool duration_ok=false;
+        for(size_t j=0;j<min_durations.count;j+=4) {
+            const int64_t *v=&min_durations.data.i64[j];
+            if(v[0]==FMT_IMPLEMENTATION_DEFINED && v[1]==w && v[2]==h &&
+               v[3]>0 && v[3]<=(1000000000LL/VIDEO_FPS)) {
+                duration_ok=true;
+                break;
+            }
+        }
+        if(!duration_ok) continue;
+        if(video_n>=MAX_SIZE_TUPLES) return NULL;
+        const size_t pos=video_n*VIDEO_FIELDS;
+        video_config[pos+0]=w;
+        video_config[pos+1]=h;
+        video_config[pos+2]=VIDEO_FPS; /* min fps */
+        video_config[pos+3]=VIDEO_FPS; /* max fps; valid Range [30,30] */
+        video_config[pos+4]=0;         /* no stabilization crop requested */
+        video_config[pos+5]=0;         /* no artificial recording time limit */
+        ++video_n;
+    }
+    if(!video_n) {
+        LOG("No genuine 30fps PRIVATE output for Samsung video configuration");
+        return NULL;
+    }
     const size_t old_count=entries(original), old_data=bytes(original);
     if(old_count>4096 || old_data>(1u<<22))return NULL;
-    const size_t extra_bytes=(preview_n+picture_n)*4*sizeof(int32_t);
+    const size_t extra_bytes=((preview_n+picture_n)*4+video_n*VIDEO_FIELDS)*sizeof(int32_t);
     camera_metadata_t *merged=alloc(old_count+4,old_data+extra_bytes*2+1024);
     if(!merged)return NULL;
     if(get_id&&set_id)set_id(merged,get_id(original));
     if(append(merged,original)!=0 ||
        add(merged,PREVIEW_TAG,preview_config,preview_n*4)!=0 ||
        add(merged,PICTURE_TAG,picture_config,picture_n*4)!=0 ||
-       add(merged,VIDEO_TAG,preview_config,preview_n*4)!=0 ||
+       add(merged,VIDEO_TAG,video_config,video_n*VIDEO_FIELDS)!=0 ||
        sort(merged)!=0) {
         LOG("Preview/photo metadata augmentation rejected by system metadata library");
         release(merged);
         return NULL;
     }
-    LOG("EXPERIMENTAL Samsung VIDEO_TAG shape unverified; added %zu preview and %zu real JPEG output sizes",
-        preview_n,picture_n);
+    LOG("Samsung 6-int VIDEO_TAG shape; real sizes + fixed 30fps: %zu preview, %zu JPEG, %zu conservative video configs (not device-tested)",
+        preview_n,picture_n,video_n);
     return merged; /* camera_info pointers must remain valid for module lifetime */
 }
 static int wrapped_get_info(int id,camera_info_t *info) {
