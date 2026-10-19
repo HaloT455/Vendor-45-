@@ -1,0 +1,152 @@
+name: ALICE A16 Samsung video six-int metadata + DSDS vendor build (UNTESTED)
+
+on:
+  push:
+    branches: ["work/a16-camera-video6-metadata-fix"]
+    paths:
+      - "tools/native_camera/**"
+      - "tools/stage_hlong_camera_wrapper.py"
+      - "tools/build_samsung_preview_bridge.py"
+      - "tools/integrate_hlong_camera_trial.py"
+      - "tools/integrate_samsung_preview_bridge_trial.py"
+      - "tools/test_camera_video6_contract.py"
+      - "vendor/build.prop"
+      - "vendor/etc/init/**"
+      - ".github/workflows/alice-a16-samsung-video6-fix.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  camera-preview-restore:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout combined experimental branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Guard original baseline and preserve two-SIM vendor config
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "work/a16-camera-video6-metadata-fix"
+          test "$(git rev-parse refs/remotes/origin/baseline/test7)" = "d5748652ddf1eb4cdc18d2f51cbbde8f6fd16170"
+          python3 tools/test_vendor_config_fixes.py
+          grep -qx 'ro.telephony.default_network=9,9' vendor/build.prop
+          ! grep -q 'setprop ro.telephony.default_network' vendor/etc/init/init.vendor.rilcommon.rc
+          git diff --exit-code refs/remotes/origin/work/a16-dsds-camera-preview-restore HEAD -- vendor metadata
+          echo "Input vendor bytes unchanged relative to previous DSDS+camera preview branch"
+
+      - name: Host ELF and EROFS build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils dpkg-dev
+          python3 tools/setup_erofs.py
+
+      - name: Validate Oct 19 preview and Oct 20 video FPS crash regression
+        run: |
+          python3 tools/camera_preview_contract.py --selftest
+          python3 tools/test_camera_regression_20261019.py
+          python3 tools/test_camera_video6_contract.py
+
+      - name: Verify source vendor and legacy HALs
+        run: |
+          python3 tools/audit_vendor_camera_ril.py --output out/camera-radio-source-audit.json
+          python3 tools/build_vendor.py --verify-only --allow-file-changes
+
+      - name: Fetch SHA-pinned original Exynos8895 UN1GAGA wrapper
+        run: |
+          python3 tools/stage_hlong_camera_wrapper.py --output out/stage_hlong_camera
+          python3 tools/integrate_hlong_camera_trial.py --stage out/stage_hlong_camera --report out/camera-wrapper-stage.json
+
+      - name: Set up SDK command-line tools for Android NDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+
+      - name: Install pinned NDK r27c for 32-bit and 64-bit HAL
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v sdkmanager
+          sdkmanager --install "ndk;27.2.12479018"
+          test -x "$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
+
+      - name: Compile and integrate Samsung preview and picture vendor-tag bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/build_samsung_preview_bridge.py --ndk "$ANDROID_HOME/ndk/27.2.12479018" --output out/stage_preview_bridge
+          python3 tools/integrate_samsung_preview_bridge_trial.py --stage out/stage_preview_bridge --report out/preview-bridge-stage.json
+          for abi in lib lib64; do
+            test -s "vendor/$abi/hw/camera.universal8895.so"
+            test -s "vendor/$abi/hw/camera.alice-hlong.universal8895.so"
+            test -s "vendor/$abi/hw/camera.vendor.universal8895.so"
+            readelf --dyn-syms --wide "vendor/$abi/hw/camera.universal8895.so" | grep -E '[[:space:]]HMI$'
+          done
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          props=Path("vendor/build.prop").read_text()
+          assert props.count("ro.telephony.default_network=9,9\n")==1
+          m=json.loads(Path("metadata/vendor-image-manifest.json").read_text())
+          assert len(m["entries"])==1433, len(m["entries"])
+          print("PASS: 1433 entries, 32/64 HAL preservation, DSDS default_network=9,9")
+          PY
+
+      - name: Validate EROFS including changed camera modules
+        run: python3 tools/build_vendor.py --verify-only --allow-file-changes
+
+      - name: Build combined DSDS and Camera experimental vendor EROFS image
+        run: |
+          python3 tools/build_vendor.py --allow-file-changes --max-image-bytes 629145600 --output out/vendor-a16-video6-dsds-UNTESTED.img
+
+      - name: Verify output report, EROFS magic and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s out/vendor-a16-video6-dsds-UNTESTED.img
+          test "$(od -An -tx4 -j1024 -N4 out/vendor-a16-video6-dsds-UNTESTED.img | tr -d ' ')" = e0f5e1e2
+          sha256sum out/vendor-a16-video6-dsds-UNTESTED.img > out/CAMERA-VIDEO6-DSDS-SHA256SUMS
+          python3 - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          img=Path("out/vendor-a16-video6-dsds-UNTESTED.img")
+          report=json.loads(Path("out/vendor-a16-video6-dsds-UNTESTED.report.json").read_text())
+          assert report["verified"] and report["entries"]==1433
+          assert report["rebuilt_image_sha256"]==hashlib.sha256(img.read_bytes()).hexdigest()
+          print("Physical file size:",img.stat().st_size)
+          print("Original source size: 481640448 bytes")
+          print("EXPERIMENTAL ONLY; compare actual physical vendor partition before flashing")
+          PY
+
+      - name: Add honest runtime and rollback warning
+        if: always()
+        shell: bash
+        run: |
+          echo "### Camera preview restoration research" >> "$GITHUB_STEP_SUMMARY"
+          echo "Oct 19 preview NullPointerException fixed by previous bridge; Oct 20 05:50:46 Range min > max crash caused by 4-int preview tuples used as video configurations." >> "$GITHUB_STEP_SUMMARY"
+          echo "Now encodes Samsung video configurations as actual 6-int [width,height,minFPS,maxFPS,crop,timeLimit] tuples, limited to Camera2-advertised fixed 30fps <=1080p. Retains 32/64 HAL, original delegates and DSDS 9,9." >> "$GITHUB_STEP_SUMMARY"
+          echo "NOT tested on device. Video recording, audio encoding, face unlock, LTE and Dual 4G NOT CONFIRMED." >> "$GITHUB_STEP_SUMMARY"
+          echo "DO NOT FLASH without checking actual vendor partition size, boot/SELinux compatibility and recovery rollback." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save research-only vendor image and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ALICE-A16-SAMSUNG-VIDEO6-DSDS-UNTESTED-DO-NOT-FLASH
+          retention-days: 7
+          compression-level: 1
+          if-no-files-found: warn
+          path: |
+            out/camera-radio-source-audit.json
+            out/camera-wrapper-stage.json
+            out/preview-bridge-stage.json
+            out/stage_preview_bridge/build-report.json
+            out/CAMERA-VIDEO6-DSDS-SHA256SUMS
+            out/vendor-a16-video6-dsds-UNTESTED.img
+            out/vendor-a16-video6-dsds-UNTESTED.report.json
