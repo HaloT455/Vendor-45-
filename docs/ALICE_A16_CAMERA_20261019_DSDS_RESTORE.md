@@ -37,3 +37,13 @@ The bridge also currently exposes experimental Samsung `availableVideoConfigurat
 ### Invariants
 
 The original `baseline/test7` is immutable. Modem CP/EFS, IMEI, KernelSU, Android framework, app APK and Samsung Radio HAL are not modified. All work is staged in CI on ephemeral checkout. **NOT FLASH READY.**
+
+## 2026-10-20 user report: flashed CI image, camera remains unusable
+
+The user reports having flashed the artifact from Actions run 39287309454 but it **did not repair their camera**. Treat this as a failed *device acceptance test*. EROFS and ELF validation were successful offline only. Do not re-label the existing artifact fixed or recommend re-flashing it.
+
+**Critical design gap for recording:** in `tools/native_camera/alice_preview_bridge.c`, the experimental `samsung.android.scaler.availableVideoConfigurations` is synthesized from the PRIVATE preview sizes (same payload as the preview tag). This has not been verified against the Samsung proprietary *video* format contract or actual encoder/recorder capabilities and **must not be presented as a video fix**.
+
+**Next actionable evidence**: after the flash collect fresh camera service registered vendor tags, Samsung Camera package permission state, and the *newest camera-specific exception* (not the pre-flash 19 Oct log). Run `python3 tools/diagnose_postflash_samsungcamera.py` on a connected Linux ADB host. Inspect `summary.txt` and the filtered exception; retain raw logs privately. If the 19 Oct missing preview tag remains, first establish whether the new bridge binary was actually loaded rather than blindly rewriting HAL; if preview progressed to `ACCESS_SYSTEM_KEY_DISPATCHING`, resolve the separate app/system permission issue. Native recording work additionally requires recorder-specific failures and validation of a real Samsung video-tag schema.
+
+Do not risk CP/EFS/IMEI and do not flash this experimental image again without a justified and verifiable change.
