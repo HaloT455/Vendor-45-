@@ -22,3 +22,15 @@ Branch forked from `work/a16-camera-video6-metadata-fix` AFTER the user confirme
 
 ## Constraints
 No new vendor image is warranted from historical 9,9/default mask evidence; no modifications to modem CP, EFS, IMEI, NV, band calibration, serial identifiers or flashing. Keep last known functional Camera+Video6 firmware backed up. If an active framework/HAL error is isolated, fix only radio files and verify camera content byte-for-byte unchanged.
+
+## 2026-10-20 user two-switch snapshot assessment
+
+User provided two post-CameraVideo6 reports 10 seconds apart, at 09:48:50 (`snapshot=sim1`) and 09:49:00 (`snapshot=sim2`). These are **manual labels only** passed through `--snapshot`; the script does NOT select a default mobile-data SIM, enable data, or trigger LTE switching. Both reports show exactly:
+- PhoneId0: CS DENIED UMTS, PS NOT_REG_OR_SEARCHING UMTS, voice/data OUT_OF_SERVICE, `mUserMobileDataState=false`.
+- PhoneId1: CS HOME UMTS, PS HOME HSUPA, voice/data IN_SERVICE, `mUserMobileDataState=false`.
+- `ro.telephony.default_network=9,9`, `persist.radio.multisim.config=dsds`, `ds_detect=2`, two SIMs LOADED.
+- Historical error counters are zero for CP second-LTE refusal, RAF0, invalid RadioCapability, RADIO_NOT_AVAILABLE; these do **not** prove Radio HAL health because no explicit network type attempt occurred.
+
+**Gate:** Distinguish *actual default data selection and user data enabled setting* via `dumpsys isub` (`defaultDataPhoneId`, `defaultDataSubId`) and `dumpsys telephony.registry` before any vendor change. AOSP maps `svc data enable` to `cmd phone data enable`, which can be exercised on the currently selected default mobile-data subscription if the user elects. Once data is enabled, capture data-enabled + 30s attach and network transition for SIM1 and SIM2 separately. Do not alter LTE masks or CP/EFS to compensate for data disabled. SIM1's CS DENIED requires independent investigation if it persists after single-SIM checks.
+
+No new radio vendor artifact should be advertised as fixing two LTE registrations based solely on the three identical captures.
