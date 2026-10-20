@@ -1,0 +1,53 @@
+diff --git a/src/java/com/android/internal/telephony/RadioResponse.java b/src/java/com/android/internal/telephony/RadioResponse.java
+--- a/src/java/com/android/internal/telephony/RadioResponse.java
++++ b/src/java/com/android/internal/telephony/RadioResponse.java
+@@ -1521,19 +1521,30 @@
+-    public void getRadioCapabilityResponse(RadioResponseInfo responseInfo,
+-            android.hardware.radio.V1_0.RadioCapability rc) {
+-        RILRequest rr = mRil.processResponse(responseInfo);
+-
+-        if (rr != null) {
+-            RadioCapability ret = RILUtils.convertHalRadioCapability(rc, mRil);
+-            if (responseInfo.error == RadioError.REQUEST_NOT_SUPPORTED
+-                    || responseInfo.error == RadioError.GENERIC_FAILURE) {
+-                // we should construct the RAF bitmask the radio
+-                // supports based on preferred network bitmasks
+-                ret = mRil.makeStaticRadioCapability();
+-                responseInfo.error = RadioError.NONE;
+-            }
+-            if (responseInfo.error == RadioError.NONE) {
+-                sendMessageResponse(rr.mResult, ret);
+-            }
+-            mRil.processResponseDone(rr, responseInfo, ret);
+-        }
+-    }
++    public void getRadioCapabilityResponse(RadioResponseInfo responseInfo,
++            android.hardware.radio.V1_0.RadioCapability rc) {
++        RILRequest rr = mRil.processResponse(responseInfo);
++
++        if (rr != null) {
++            RadioCapability ret = RILUtils.convertHalRadioCapability(rc, mRil);
++            if (responseInfo.error == RadioError.REQUEST_NOT_SUPPORTED
++                    || responseInfo.error == RadioError.GENERIC_FAILURE) {
++                // we should construct the RAF bitmask the radio
++                // supports based on preferred network bitmasks
++                ret = mRil.makeStaticRadioCapability();
++                responseInfo.error = RadioError.NONE;
++            } else if (responseInfo.error == RadioError.NONE
++                    && ret != null
++                    && ret.getRadioAccessFamily()
++                            == android.telephony.RadioAccessFamily.RAF_UNKNOWN) {
++                // Research-only workaround for a SUCCESS response with an empty RAF.
++                // Do not replace a valid capability and do not change radio errors.
++                RadioCapability fallback = mRil.makeStaticRadioCapability();
++                if (fallback.getRadioAccessFamily()
++                        != android.telephony.RadioAccessFamily.RAF_UNKNOWN) {
++                    ret = fallback;
++                }
++            }
++            if (responseInfo.error == RadioError.NONE) {
++                sendMessageResponse(rr.mResult, ret);
++            }
++            mRil.processResponseDone(rr, responseInfo, ret);
++        }
++    }
