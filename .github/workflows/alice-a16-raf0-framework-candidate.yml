@@ -1,0 +1,49 @@
+name: ALICE A16 RAF0 framework candidate - SOURCE TEST ONLY
+
+on:
+  push:
+    branches: ["work/a16-raf0-framework-fallback-study"]
+    paths:
+      - "research/patches/0001-radioresponse-raf0-success-fallback-RESEARCH.patch"
+      - "tools/verify_raf0_framework_candidate.py"
+      - ".github/workflows/alice-a16-raf0-framework-candidate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-framework-source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout isolated ALICE research branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Java for isolated branch tests
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Fetch pinned Lineage Android 16 Telephony RadioResponse.java only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/alice-telephony-framework/src/java/com/android/internal/telephony
+          curl --fail --location --silent --show-error --retry 3 \
+            https://raw.githubusercontent.com/LineageOS/android_frameworks_opt_telephony/a6e94555e0d750e4557f5371811b776637ab7c50/src/java/com/android/internal/telephony/RadioResponse.java \
+            -o /tmp/alice-telephony-framework/src/java/com/android/internal/telephony/RadioResponse.java
+          test -s /tmp/alice-telephony-framework/src/java/com/android/internal/telephony/RadioResponse.java
+      - name: Validate patch applies and run standalone Java behavior tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/verify_raf0_framework_candidate.py \
+            --source /tmp/alice-telephony-framework/src/java/com/android/internal/telephony/RadioResponse.java
+      - name: Explicit release gate
+        shell: bash
+        run: |
+          echo 'PASSED = patch syntax + isolated Java tests ONLY.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'NOT TESTED = user ROM source compatibility, system ART build, live HIDL RadioCapability, LTE attachment, dual LTE, camera regression.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'NO vendor.img, system.img, flashable ZIP, or CP/EFS changes are produced by this workflow.' >> "$GITHUB_STEP_SUMMARY"
