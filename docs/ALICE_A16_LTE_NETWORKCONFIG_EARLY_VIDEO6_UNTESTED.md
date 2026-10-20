@@ -39,3 +39,17 @@ Exactly **one input vendor file** differs:
 4. If LTE still absent, return to exact working Camera+Video6 image and investigate `getRadioCapabilityResponse` on the proprietary HAL. No LTE fix may be claimed from CI-only validation.
 
 **This is a non-flash-verified radio startup timing experiment, not a verified LTE repair.**
+
+## 2026-10-20 23:14 +07: Viettel LTE-only operational blocker — IMPORTANT
+
+User reports `SIM Viettel vẫn ko dùng đc tại Viettel chỉ dùng LTE`. They did **not** explicitly confirm whether the experimental early-NetworkConfig image was flashed, so DO NOT report it as a confirmed failed runtime test or successful device installation.
+
+Carrier evidence:
+- Viettel itself states 3G phase-out completed in 2023: https://magazine.viettel.vn/vi/pho-cap-smartphone-cong-dan-so-kien-tao-xa-hoi-so/
+- Official report: Viettel stopped 2G nationally 2026-09-15: https://baochinhphu.vn/viettel-chinh-thuc-tat-song-2g-dua-nguoi-dung-vao-ky-nguyen-mang-toc-do-cao-10226091609163217.htm
+- Samsung Members 2018 S8 dual-SIM technical support response: only **one SIM can be on LTE at a time**, selecting LTE on one slot moves other to 3G/2G: https://r2.community.samsung.com/t5/Galaxy-S/How-can-i-get-those-sim-4G-network/m-p/160777/highlight/true. This could explain observed SIM1 Viettel UMTS DENIED when SIM2 MobiFone is default data; no guarantee custom One UI 8 preserves precise slot allocation.
+- Viettel VoLTE is required for reliable voice once 2G/3G are retired; official guidance https://098.viettel.vn/tin-tuc/chi-tiet/volte-dich-vu-thoai-chat-luong-cao-tren-ha-tang-mang-4g5g-viettel/13748208
+
+**Prioritized non-flash test:** On Android Settings / Connections / SIM Manager set default **Mobile data** SIM1 = Viettel instead of previously-default SIM2 MobiFone. Leave both cards enabled, LTE/3G/2G automatic on Viettel. Recheck WWAN registration `LTE`, NOT allowed-type bitmask. If unsuccessful, physically test **Viettel SIM alone** with MobiFone removed (known-safe procedure), and confirm ability to camp on LTE. Distinguish DSDS policy/stack selection from single-SIM RIL/CP LTE failure. No further speculative `ro.telephony.default_network` patch. Retain or return to already user-confirmed Camera+Video6 image with safe rollback checks.
+
+Priority shifted: get Viettel **one LTE attach and VoLTE** rather than unsupported simultaneous 2x LTE. This release remains non-flash-verified, and switching the default data subscription is a **user-controlled runtime setting**, not a vendor property workaround.
