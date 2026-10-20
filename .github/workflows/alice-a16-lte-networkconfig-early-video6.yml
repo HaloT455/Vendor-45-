@@ -124,13 +124,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -s out/vendor-a16-video6-dsds-UNTESTED.img
-          test "$(od -An -tx4 -j1024 -N4 out/vendor-a16-video6-dsds-UNTESTED.img | tr -d ' ')" = e0f5e1e2
-          sha256sum out/vendor-a16-video6-dsds-UNTESTED.img > out/CAMERA-VIDEO6-LTE-INIT-SHA256SUMS
+          test -s out/vendor-a16-video6-lte-networkconfig-early-UNTESTED.img
+          test "$(od -An -tx4 -j1024 -N4 out/vendor-a16-video6-lte-networkconfig-early-UNTESTED.img | tr -d ' ')" = e0f5e1e2
+          sha256sum out/vendor-a16-video6-lte-networkconfig-early-UNTESTED.img > out/CAMERA-VIDEO6-LTE-INIT-SHA256SUMS
           python3 - <<'PY'
           import hashlib,json
           from pathlib import Path
-          img=Path("out/vendor-a16-video6-dsds-UNTESTED.img")
+          img=Path("out/vendor-a16-video6-lte-networkconfig-early-UNTESTED.img")
           report=json.loads(Path("out/vendor-a16-video6-lte-networkconfig-early-UNTESTED.report.json").read_text())
           assert report["verified"] and report["entries"]==1433
           assert report["rebuilt_image_sha256"]==hashlib.sha256(img.read_bytes()).hexdigest()
@@ -162,6 +162,6 @@ jobs:
             out/camera-wrapper-stage.json
             out/preview-bridge-stage.json
             out/stage_preview_bridge/build-report.json
-            out/CAMERA-VIDEO6-DSDS-SHA256SUMS
-            out/vendor-a16-video6-dsds-UNTESTED.img
-            out/vendor-a16-video6-dsds-UNTESTED.report.json
+            out/CAMERA-VIDEO6-LTE-INIT-SHA256SUMS
+            out/vendor-a16-video6-lte-networkconfig-early-UNTESTED.img
+            out/vendor-a16-video6-lte-networkconfig-early-UNTESTED.report.json
