@@ -157,3 +157,28 @@ User attached `ALICE_A16_RAF_ROOTCAUSE_V2_20261020_121035.txt`.
   adb -d shell 'dumpsys phone | grep -E -i -m 30 "mRadioCapability|RadioCapability|radioAccessFamily|modemRafBitMask|filteredRafBitMask"'
   ```
   If lookup resolves empty/missing, investigate Android system overlay target policy / missing framework fallback; if resolves LTE but cached modem RAF remains 0, inspect GET_RADIO_CAPABILITY request/response handling, firmware/library compatibility, and startup order; **do not fabricate LTE RAF support**. No CP/EFS edits, no blind modem firmware flash, protect stable Camera+Video6.
+
+## 2026-10-20 — VERIFIED framework RAF overlay; trace success-with-zero RadioCapability
+
+User provided live command output:
+```
+cmd overlay lookup --verbose --user 0 android android:string/config_radio_access_family
+  Overlaid: /vendor/overlay/framework-res__auto_generated_rro_vendor.apk #1
+  Best matching is from default configuration of android.auto_generated_rro_vendor__
+  GSM|CDMA|EVDO|WCDMA|LTE
+cmd overlay list --user 0 android
+  [x] android.auto_generated_rro_vendor__
+dumpsys phone | grep "mRadioCapability|radioAccessFamily|modemRafBitMask|filteredRafBitMask"
+  (no matching output)
+```
+
+This rules out **missing or inactive framework RAF resource**; adding a second RAF RRO is unjustified. It does **not** show actual modem capabilities, and absence from dumpsys is not a zero value.
+
+Important upstream source confirmation:
+- AOSP `RadioAccessFamily.rafTypeFromString("GSM|CDMA|EVDO|WCDMA|LTE")` recognizes every token; thus the currently resolved overlay string should produce nonzero LTE bitmask if *invoked as fallback*.
+- Android `RadioResponse.getRadioCapabilityResponse` normally calls `mRil.makeStaticRadioCapability()` only when the HAL response error is `REQUEST_NOT_SUPPORTED` or `GENERIC_FAILURE`. On `RadioError.NONE`, a returned `rc.raf=0` may be passed through without taking this fallback.
+- In `GsmCdmaPhone.EVENT_GET_RADIO_CAPABILITY`, only a nonexceptional response updates cached radio capability. If the HAL returns an error OTHER than fallback-eligible ones or drops the callback, cached capability can remain unknown.
+- Corresponding `Phone.updateAllowedNetworkTypes` aborts on `RAF_UNKNOWN=0` before passing an LTE allowed mask downstream. Historical user log has 8 aborts with 0 between 11:37:10-15, all unattributed to a specific slot.
+- Samsung HIDL `Radio.cpp` and `SecRadioResponse.cpp` forward getRadioCapability request/response to proprietary `libsec-ril.so` without modification; cannot infer the actual error code or returned RAF from static source.
+
+**Working hypothesis, NOT proven**: Samsung HAL responds `RadioError.NONE` with `raf=0`, bypassing AOSP fallback. Verify by sanitized radio log event `EVENT_GET_RADIO_CAPABILITY` rc, error, and `Faking RIL_REQUEST_GET_RADIO_CAPABILITY` for each slot. Another possibility is missing/late callback. Do not patch modem capability statically; a framework-only workaround could use already resolved `config_radio_access_family` as fallback **only for verified success-with-zero** (and only after confirming legacy firmware supports LTE). This is system/framework telephony code, NOT repairable by merely changing vendor properties. Preserve Video6/Camera+CP/EFS; no FLASH READY radio patch at this stage.
