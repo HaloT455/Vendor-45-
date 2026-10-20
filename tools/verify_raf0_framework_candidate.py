@@ -18,8 +18,11 @@ START = "    public void getRadioCapabilityResponse("
 END = "    public void setRadioCapabilityResponse("
 
 def run(*args, cwd=None):
-    return subprocess.run([str(a) for a in args], cwd=cwd,
-        check=True, text=True, capture_output=True).stdout
+    cmd = [str(a) for a in args]
+    result = subprocess.run(cmd, cwd=cwd, text=True, capture_output=True)
+    if result.returncode:
+        raise RuntimeError(f"Command failed: {cmd!r}\\nstdout={result.stdout}\\nstderr={result.stderr}")
+    return result.stdout
 
 def extract(text):
     a = text.index(START)
