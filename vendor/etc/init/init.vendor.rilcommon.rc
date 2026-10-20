@@ -32,10 +32,13 @@ on fs
     chown radio radio /mnt/vendor/efs/factory.prop
     chmod 0600 /mnt/vendor/efs/factory.prop
     exec_start sim_config
-
-on post-fs-data
+    # ALICE Android16 LTE radio-init timing trial:
+    # Load Samsung NetworkConfig in fs, following SimConfig, before the
+    # framework requests per-phone GET_RADIO_CAPABILITY. Only the one-shot
+    # service's original /mnt/vendor/efs/telephony.prop reads are permitted.
+    # No edits to CP, EFS/NV, modem firmware, phone IDs or LTE masks.
     exec_start network_config
-    # Keep the vendor NetworkConfig initialization for both SIM slots.
-    # Android16 ro.telephony.default_network is an immutable IntegerList;
-    # it is declared as 9,9 in vendor/build.prop BEFORE property freeze.
-    # Do not overwrite it at post-fs-data with the single-SIM scalar 9.
+
+# NetworkConfig deliberately removed from post-fs-data in this trial.
+# ro.telephony.default_network=9,9 remains in vendor/build.prop and is
+# NOT overwritten after the immutable property is frozen.
