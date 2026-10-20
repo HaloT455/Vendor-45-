@@ -70,3 +70,16 @@ On live S8+ Exynos8895 Android 16:
 - Public AOSP `RILConstants.NETWORK_MODE_LTE_GSM_WCDMA=9` (https://android.googlesource.com/platform/prebuilts/fullsdk/sources/+/88c7ff1cd72d6305ec59f97aadc2198cc2dc3592/android-34/com/android/internal/telephony/RILConstants.java), so the existing preferred_network_mode does NOT disable LTE.
 - SM-G955F hardware supports LTE B3 / 1800 MHz used by MobiFone (see https://www.frequencycheck.com/carrier-compatibility/oJWXCL/samsung-sm-g955f-galaxy-s8-plus-td-lte-samsung-dream-2/mobifone-vietnam). This does not guarantee LTE coverage or provisioning for the physical SIM.
 - No validated reason yet for SIM1 CS DENIED, SIM2 HSPA+. **Do not patch 9,9 or flash newer CP merely because build labels differ.** Preserve stable camera/video vendor; best high-signal next test is manually ask Samsung UI to scan available operators on SIM2 LTE/3G/2G automatic, combined with one-SIM-only hardware test if safe: observe if LTE 4G network is *discoverable* and whether LTE registration succeeds. If 4G shown but no attach, debug subscription/CP/RIL registration; if scan never returns 4G while other known-good devices do at same site, debug CP/RIL RF/LTE enablement. Verify SIM1 radio truly powered down/removal separately.
+
+## 2026-10-20 targeted new lead: Samsung EFS telephony.prop policy override
+
+Exact AOSP/Lineage Samsung configuration service source:
+https://github.com/LineageOS/android_hardware_samsung/blob/lineage-24.0/ril/secril_config_svc/secril_config_svc.cpp
+
+`secril_config_svc NetworkConfig` reads `/mnt/vendor/efs/telephony.prop` (falling back to `/efs/telephony.prop`), extracts `persist.radio.def_network`, then publishes `persist.radio.def_network` and `ro.vendor.radio.default_network`. Our S8+ vendor uses the same `/vendor/bin/secril_config_svc NetworkConfig` as the `network_config` one-shot started on post-fs-data. This creates a **second network policy configuration path** distinct from `settings global preferred_network_mode=9,9` and `ro.telephony.default_network=9,9`.
+
+**Do not assume** 9,9 proves the vendor/CP path permits LTE until `persist.radio.def_network` and `ro.vendor.radio.default_network` are checked on the device. In particular, if the persisted value is legacy `3` or `3,3`, it is a plausible cause of 3G selection even though user settings allow LTE. This is not yet observed on the device and must not be called a completed repair. Stock Samsung dumps show `ro.vendor.radio.default_network=9`, `ro.vendor.sec.radio.def_network=9` under ordinary GSM/WCDMA/LTE firmware; default network 9 must not be confused with a simultaneous DSDS two-LTE radio guarantee.
+
+A local read-only, sanitized one-command tool `ALICE_A16_LTE_RIL_POLICY_AUDIT.py` has been created for the user to inspect the live property chain, file-vs-runtime mismatch, and service lifecycle without changing CP, EFS or the working Camera+Video6 vendor. If properties already enable LTE, **do not add an arbitrary property or build a speculative firmware image**: investigate modem registration and live scanning / service response, and confirm the SIM's 4G provisioning.
+
+Separate hardware limitation: SM-G955FD DSDS evidence indicates at most one LTE registration at a time, the other SIM 3G; hardware CP capability cannot be forced by setting both mask bits.
