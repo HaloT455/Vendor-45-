@@ -1,0 +1,167 @@
+name: ALICE A16 LTE NetworkConfig Early + Camera Video6 (UNTESTED)
+
+on:
+  push:
+    branches: ["work/a16-lte-networkconfig-early-video6-trial"]
+    paths:
+      - "tools/native_camera/**"
+      - "tools/stage_hlong_camera_wrapper.py"
+      - "tools/build_samsung_preview_bridge.py"
+      - "tools/integrate_hlong_camera_trial.py"
+      - "tools/integrate_samsung_preview_bridge_trial.py"
+      - "tools/test_camera_video6_contract.py"
+      - ".github/workflows/alice-a16-lte-networkconfig-early-video6.yml"
+      - "vendor/build.prop"
+      - "vendor/etc/init/**"
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  camera-preview-restore:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout combined experimental branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Guard original baseline and preserve two-SIM vendor config
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "work/a16-lte-networkconfig-early-video6-trial"
+          test "$(git rev-parse refs/remotes/origin/baseline/test7)" = "d5748652ddf1eb4cdc18d2f51cbbde8f6fd16170"
+          python3 tools/test_vendor_config_fixes.py
+          grep -qx 'ro.telephony.default_network=9,9' vendor/build.prop
+          ! grep -q 'setprop ro.telephony.default_network' vendor/etc/init/init.vendor.rilcommon.rc
+          diff="$(git diff --name-only refs/remotes/origin/work/a16-camera-video6-metadata-fix HEAD -- vendor metadata)"
+          test "$diff" = "vendor/etc/init/init.vendor.rilcommon.rc"
+          echo "Only one vendor file changed relative to known-working Camera+Video6"
+          # Preserve known-good Camera Video6 source throughout this test.
+          git diff --exit-code refs/remotes/origin/work/a16-camera-video6-metadata-fix HEAD -- tools/native_camera tools/stage_hlong_camera_wrapper.py tools/build_samsung_preview_bridge.py tools/integrate_hlong_camera_trial.py tools/integrate_samsung_preview_bridge_trial.py
+          python3 - <<'PY'
+          from pathlib import Path
+          rc=Path("vendor/etc/init/init.vendor.rilcommon.rc").read_text()
+          fs=rc.split("on fs\n",1)[1].split("\non ",1)[0]
+          assert "exec_start sim_config" in fs and "exec_start network_config" in fs
+          assert fs.index("exec_start sim_config") < fs.index("exec_start network_config")
+          assert rc.count("exec_start network_config") == 1
+          assert "setprop persist.radio.def_network" not in rc
+          assert "setprop ro.telephony.default_network" not in rc
+          print("PASS: only Samsung NetworkConfig one-shot moved earlier; no persistent radio writes")
+          PY
+
+      - name: Host ELF and EROFS build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils dpkg-dev
+          python3 tools/setup_erofs.py
+
+      - name: Validate Oct 19 preview and Oct 20 video FPS crash regression
+        run: |
+          python3 tools/camera_preview_contract.py --selftest
+          python3 tools/test_camera_regression_20261019.py
+          python3 tools/test_camera_video6_contract.py
+
+      - name: Verify source vendor and legacy HALs
+        run: |
+          python3 tools/audit_vendor_camera_ril.py --output out/camera-radio-source-audit.json
+          python3 tools/build_vendor.py --verify-only --allow-file-changes
+
+      - name: Fetch SHA-pinned original Exynos8895 UN1GAGA wrapper
+        run: |
+          python3 tools/stage_hlong_camera_wrapper.py --output out/stage_hlong_camera
+          python3 tools/integrate_hlong_camera_trial.py --stage out/stage_hlong_camera --report out/camera-wrapper-stage.json
+
+      - name: Set up SDK command-line tools for Android NDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ''
+
+      - name: Install pinned NDK r27c for 32-bit and 64-bit HAL
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v sdkmanager
+          sdkmanager --install "ndk;27.2.12479018"
+          test -x "$ANDROID_HOME/ndk/27.2.12479018/toolchains/llvm/prebuilt/linux-x86_64/bin/clang"
+
+      - name: Compile and integrate Samsung preview and picture vendor-tag bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/build_samsung_preview_bridge.py --ndk "$ANDROID_HOME/ndk/27.2.12479018" --output out/stage_preview_bridge
+          python3 tools/integrate_samsung_preview_bridge_trial.py --stage out/stage_preview_bridge --report out/preview-bridge-stage.json
+          for abi in lib lib64; do
+            test -s "vendor/$abi/hw/camera.universal8895.so"
+            test -s "vendor/$abi/hw/camera.alice-hlong.universal8895.so"
+            test -s "vendor/$abi/hw/camera.vendor.universal8895.so"
+            readelf --dyn-syms --wide "vendor/$abi/hw/camera.universal8895.so" | grep -E '[[:space:]]HMI$'
+          done
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          props=Path("vendor/build.prop").read_text()
+          assert props.count("ro.telephony.default_network=9,9\n")==1
+          m=json.loads(Path("metadata/vendor-image-manifest.json").read_text())
+          assert len(m["entries"])==1433, len(m["entries"])
+          print("PASS: 1433 entries, 32/64 HAL preservation, DSDS default_network=9,9")
+          PY
+
+      - name: Validate EROFS including changed camera modules
+        run: python3 tools/build_vendor.py --verify-only --allow-file-changes
+
+      - name: Build combined DSDS and Camera experimental vendor EROFS image
+        run: |
+          python3 tools/build_vendor.py --allow-file-changes --max-image-bytes 481931264 --output out/vendor-a16-video6-lte-networkconfig-early-UNTESTED.img
+
+      - name: Verify output report, EROFS magic and checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s out/vendor-a16-video6-dsds-UNTESTED.img
+          test "$(od -An -tx4 -j1024 -N4 out/vendor-a16-video6-dsds-UNTESTED.img | tr -d ' ')" = e0f5e1e2
+          sha256sum out/vendor-a16-video6-dsds-UNTESTED.img > out/CAMERA-VIDEO6-LTE-INIT-SHA256SUMS
+          python3 - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          img=Path("out/vendor-a16-video6-dsds-UNTESTED.img")
+          report=json.loads(Path("out/vendor-a16-video6-lte-networkconfig-early-UNTESTED.report.json").read_text())
+          assert report["verified"] and report["entries"]==1433
+          assert report["rebuilt_image_sha256"]==hashlib.sha256(img.read_bytes()).hexdigest()
+          print("Physical file size:",img.stat().st_size)
+          print("Original source size: 481640448 bytes")
+          print("EXPERIMENTAL ONLY; compare actual physical vendor partition before flashing")
+          PY
+
+      - name: Add honest runtime and rollback warning
+        if: always()
+        shell: bash
+        run: |
+          echo "### ALICE LTE NetworkConfig timing experiment" >> "$GITHUB_STEP_SUMMARY"
+          echo "Known-good Camera+Video6 bridge retained unchanged; only vendor/etc/init/init.vendor.rilcommon.rc differs from camera-video6 branch." >> "$GITHUB_STEP_SUMMARY"
+          echo "Experiment executes Samsung network_config during on fs after sim_config instead of post-fs-data. It MAY affect early RadioCapability initialization, but does NOT replace libsec-ril or implement RAF0 fallback. Revert by flashing known-working Camera+Video6 vendor only after partition/recovery verification." >> "$GITHUB_STEP_SUMMARY"
+          echo "This NEW image is NOT runtime-tested; prior Camera+Video6 image was user-reported functional. LTE and dual 4G NOT CONFIRMED. CP and EFS untouched." >> "$GITHUB_STEP_SUMMARY"
+          echo "DO NOT FLASH without checking actual vendor partition size, boot/SELinux compatibility and recovery rollback." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save research-only vendor image and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ALICE-A16-LTE-NETWORKCONFIG-EARLY-VIDEO6-UNTESTED-NO-FLASH
+          retention-days: 7
+          compression-level: 1
+          if-no-files-found: warn
+          path: |
+            out/camera-radio-source-audit.json
+            out/camera-wrapper-stage.json
+            out/preview-bridge-stage.json
+            out/stage_preview_bridge/build-report.json
+            out/CAMERA-VIDEO6-DSDS-SHA256SUMS
+            out/vendor-a16-video6-dsds-UNTESTED.img
+            out/vendor-a16-video6-dsds-UNTESTED.report.json
