@@ -52,3 +52,11 @@ The V3 snapshot is BYTE-FOR-BYTE equivalent in the radio states of both physical
 - No contemporaneous RAF=0 / invalid RadioCapability / LTE-other-stack response captured; no observed set-network-type attempt
 
 **Do not infer single-SIM LTE failure from this snapshot.** It does NOT demonstrate that SIM1 became radio POWER_OFF; `LOADED` alone also cannot prove SIM1 remained powered. Must validate with SIM1 telephony ServiceState POWER_OFF or explicit state in the SIM Manager (or safely remove SIM1 with the handset powered down), then repeat LTE attach for SIM2 in genuinely single-SIM configuration. If it still attaches only UMTS/HSUPA, investigate carrier/network LTE support and live radio network-selection/RIL events before patching vendor. No camera/CP/EFS changes authorized.
+
+## 2026-10-20 11:23:55 — latest V3 report
+- SIM1 PhoneId0: CS DENIED UMTS, PS NOT_REG_OR_SEARCHING UMTS; service OUT_OF_SERVICE; user data enabled.
+- SIM2 PhoneId1: CS HOME UMTS, PS HOME HSPA+; service IN_SERVICE; selected DEFAULT MOBILE DATA, user data enabled.
+- HSPA+ is still 3G, not LTE. A transition HSUPA -> HSPA+ does not satisfy LTE test.
+- `gsm.sim.state=LOADED,LOADED`; two subscription records; `ds_detect=2`. These **do not establish successful SIM1 power-off or physical removal**. In a verified powered-down, physically removed SIM1 test after fresh boot, expect Android Telephony SIM state ABSENT for that slot (pending OEM quirks); if still LOADED, investigate SIM mapping/state handling before CP modifications.
+- `ro.telephony.default_network=9,9`, no new RadioCapability/RAF0/CP second-stack reject in filtered period and 0 set network mode attempts observed.
+- Preserve good Camera Video6 vendor. No LTE fix exists yet. Next evidence is confirmed SIM1 card-absent state + SIM2 WWAN RAT or carrier network mode check.
