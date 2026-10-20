@@ -1,7 +1,10 @@
 diff --git a/src/java/com/android/internal/telephony/RadioResponse.java b/src/java/com/android/internal/telephony/RadioResponse.java
 --- a/src/java/com/android/internal/telephony/RadioResponse.java
 +++ b/src/java/com/android/internal/telephony/RadioResponse.java
-@@ -1521,19 +1521,30 @@
+@@ -1518,25 +1518,36 @@
+         responseVoid(responseInfo);
+     }
+ 
 -    public void getRadioCapabilityResponse(RadioResponseInfo responseInfo,
 -            android.hardware.radio.V1_0.RadioCapability rc) {
 -        RILRequest rr = mRil.processResponse(responseInfo);
@@ -51,3 +54,6 @@ diff --git a/src/java/com/android/internal/telephony/RadioResponse.java b/src/ja
 +            mRil.processResponseDone(rr, responseInfo, ret);
 +        }
 +    }
+ 
+     public void setRadioCapabilityResponse(RadioResponseInfo responseInfo,
+             android.hardware.radio.V1_0.RadioCapability rc) {
