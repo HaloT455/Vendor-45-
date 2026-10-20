@@ -97,3 +97,16 @@ New user V2 audit shows:
 **New priority informed by AOSP source**: `Phone.getEffectiveAllowedNetworkTypes()` ANDs all the allowed-network-type policies from `mAllowedNetworkTypesForReasons`, and `Phone.updateAllowedNetworkTypes()` ANDs the resulting effective mask with the modem's RAF. Hence `cmd phone get-allowed-network-types-for-users -s 1` only checks `USER`; `CARRIER`, `POWER`, `TEST`, `ENABLE_2G` can still remove LTE. Reference: https://github.com/LineageOS/android_frameworks_opt_telephony/blob/lineage-23.2/src/java/com/android/internal/telephony/Phone.java (API branch may differ; inspect code version when patching). The stored per-subscription reasons are available in `dumpsys isub` `SubscriptionInfoInternal.allowedNetworkTypesForReasons` as `user=<decimal>,power=<decimal>,carrier=<decimal>...` (never share its raw dump: contains SIM phone number/ICCID/IMSI). LTE bit: `4096` = `1 << 12`.
 
 Created externally, offline-tested `ALICE_A16_LTE_EFFECTIVE_POLICY.py` to sanitize/inspect both slots' policy reasons and report `LTE_EXCLUDED_BY_<REASON>` when appropriate. If all stored reasons contain LTE, next study `modemRaf`, RIL network-scan and LTE network registration—not property tweaks or a speculative vendor flash. Preserve camera+video6 branch and CP/EFS/NV partitions.
+
+## 2026-10-20 12:02:30 — Effective LTE policy report inconclusive; live RAF log trace next
+
+Uploaded file `ALICE_A16_LTE_EFFECTIVE_POLICY_20261020_120230.txt`:
+- SIM1: `UNKNOWN_NO_PER_REASON_POLICY` (no per-reason policy masks in output).
+- SIM2: `UNKNOWN_NO_PER_REASON_POLICY` (no per-reason policy masks in output).
+- `ro.telephony.default_network=9,9`, `ro.vendor.radio.default_network=9`, DSDS; `gsm.network.type=UMTS,IWLAN`, both SIMs LOADED.
+- **Do not interpret absence of `allowedNetworkTypesForReasons` in `dumpsys isub` as LTE allowed or denied**. The previous tool cannot discriminate further on this ROM.
+
+Framework logic verified from LineageOS `android_frameworks_opt_telephony` `Phone.java`:
+`getEffectiveAllowedNetworkTypes` intersects `mAllowedNetworkTypesForReasons` and `updateAllowedNetworkTypes` intersects that with `getRadioAccessFamily()` before `mCi.setAllowedNetworkTypesBitmap(filteredRaf)`. `RIL.java` routes newer HIDL 1.6 through `RIL_REQUEST_SET_ALLOWED_NETWORK_TYPES_BITMAP`; on older HAL it falls back to `setPreferredNetworkType`. Thus live `Phone` debug messages (`modemRafBitMask`, `filteredRafBitMask`) are an informative next test, but may be missing from retained logs: *absence cannot be treated as modemRaf=0*.
+
+A self-tested read-only Zorin Python utility `ALICE_A16_LTE_RAF_TRACE_V1.py` produces a privacy-filtered report from in-memory `dumpsys phone`, `dumpsys isub`, and `logcat -b radio`: numeric modem/filtered RAF and LTE bit `1<<12`, per-reason masks if present, radio error counts. No raw logs saved, no modem or vendor changes. Preserve working Video6 camera branch. **There is not yet a verified LTE fix or flash-ready vendor image**.
