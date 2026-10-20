@@ -42,3 +42,13 @@ New read-only V3 snapshot ("both") successfully mapped subscription to **default
 A controlled single-SIM test should distinguish simultaneous-stack restrictions from each card's individual LTE ability. A contemporaneous Samsung Members technical support response dated March 2018 indicated an S8-class Samsung device allows only one SIM to use LTE at a time, with the other SIM moved to a lower mode: https://r2.community.samsung.com/t5/Galaxy-S/How-can-i-get-those-sim-4G-network/m-p/160770 . This is evidence against promising simultaneous dual LTE from a vendor property alone, but not a substitute for testing Exynos8895/CP on this specific handset.
 
 Current next test with minimal churn: disable SIM1 in Settings (DO NOT remove/flash) while SIM2 remains selected as default-data, observe whether SIM2 moves to LTE on its own and whether RIL tries to set network type. Capture same V3 both snapshot after 30-60 s. Then restore both SIMs; if SIM2 can reach LTE alone, investigate CP LTE role hand-off. If SIM2 cannot reach LTE alone, investigate SIM2/carrier LTE provisioning/network mode and Radio HAL registration. SIM1 should later be checked alone and card-swap tested due to CS DENIED. Do not patch modem CP/NV or fake dual 4G reports.
+
+## 2026-10-20 10:23:04 follow-up after requested SIM1-off test
+
+The V3 snapshot is BYTE-FOR-BYTE equivalent in the radio states of both physical slots to the 10:19 snapshot:
+- SIM1 PhoneId0 CS DENIED (UMTS), PS NOT_REG_OR_SEARCHING, voice/data OUT_OF_SERVICE, userData=true
+- SIM2 PhoneId1 CS HOME (UMTS), PS HOME (HSUPA), userData=true; REAL default-data SIM is SIM2
+- Both physical SIM states remain LOADED, `ds_detect=2`, two slot-map records, `ro.telephony.default_network=9,9`
+- No contemporaneous RAF=0 / invalid RadioCapability / LTE-other-stack response captured; no observed set-network-type attempt
+
+**Do not infer single-SIM LTE failure from this snapshot.** It does NOT demonstrate that SIM1 became radio POWER_OFF; `LOADED` alone also cannot prove SIM1 remained powered. Must validate with SIM1 telephony ServiceState POWER_OFF or explicit state in the SIM Manager (or safely remove SIM1 with the handset powered down), then repeat LTE attach for SIM2 in genuinely single-SIM configuration. If it still attaches only UMTS/HSUPA, investigate carrier/network LTE support and live radio network-selection/RIL events before patching vendor. No camera/CP/EFS changes authorized.
