@@ -110,3 +110,33 @@ Framework logic verified from LineageOS `android_frameworks_opt_telephony` `Phon
 `getEffectiveAllowedNetworkTypes` intersects `mAllowedNetworkTypesForReasons` and `updateAllowedNetworkTypes` intersects that with `getRadioAccessFamily()` before `mCi.setAllowedNetworkTypesBitmap(filteredRaf)`. `RIL.java` routes newer HIDL 1.6 through `RIL_REQUEST_SET_ALLOWED_NETWORK_TYPES_BITMAP`; on older HAL it falls back to `setPreferredNetworkType`. Thus live `Phone` debug messages (`modemRafBitMask`, `filteredRafBitMask`) are an informative next test, but may be missing from retained logs: *absence cannot be treated as modemRaf=0*.
 
 A self-tested read-only Zorin Python utility `ALICE_A16_LTE_RAF_TRACE_V1.py` produces a privacy-filtered report from in-memory `dumpsys phone`, `dumpsys isub`, and `logcat -b radio`: numeric modem/filtered RAF and LTE bit `1<<12`, per-reason masks if present, radio error counts. No raw logs saved, no modem or vendor changes. Preserve working Video6 camera branch. **There is not yet a verified LTE fix or flash-ready vendor image**.
+
+## 2026-10-20 12:06:06 — RAF V1 explicit abort, parser double-count corrected
+
+User report `ALICE_A16_LTE_RAF_TRACE_20261020_120606.txt`:
+- `unknown_raf_abort=8` is **8 matches for exact Android diagnostic `setPreferredNetworkType: Abort, unknown RAF`**. This is strong evidence that **some network-mode changes were aborted because the framework had no valid modem Radio Access Family (RAF) at those times**, not proof that it persists now or that SIM2 in particular generated all events. Unlike prior reports with zeros, investigate RadioCapability initialization and radio HAL forwarding.
+- **V1 script double-counted:** `set_allowed_network_types=8` uses a regex that also matches `setPreferredNetworkType` appearing **inside those eight abort lines**. Therefore V1 does *NOT* prove 8 successful network-mode write requests! Corrected in privacy-safe V2 script.
+- `ril_network_error=10` includes broad `REQUEST_NOT_SUPPORTED` (often `GET_BARRING_INFO`) and doesn't by itself diagnose LTE failure.
+- `radio_capability_invalid=0`, `cp_second_lte_stack=0` in retained log.
+- `dumpsys phone` sections not found due to ROM-specific format, not proof of missing phone services.
+- `dumpsys isub` yields **three duplicate copies of** `user=LTE_INCLUDED` for each slot. Treat as same repeated policy entry, not three independent proofs; the prior tool assumed per-reason fields unavailable because its parser was insufficient.
+- `FRAMEWORK RAF EVENTS: UNAVAILABLE` for `modemRafBitMask / filteredRafBitMask` success path. This *fits* early return on RAF unknown, but could also mean log history lacks success lines.
+
+Source: AOSP `Phone.updateAllowedNetworkTypes`:
+```java
+int modemRaf = getRadioAccessFamily();
+if (modemRaf == RadioAccessFamily.RAF_UNKNOWN) {
+    Rlog.d(LOG_TAG, "setPreferredNetworkType: Abort, unknown RAF: " + modemRaf);
+    // send GENERIC_FAILURE and return, without setAllowedNetworkTypesBitmap
+    return;
+}
+int filteredRaf = (int) (modemRaf & getEffectiveAllowedNetworkTypes());
+mCi.setAllowedNetworkTypesBitmap(filteredRaf, response);
+```
+Crosschecked https://android.googlesource.com/platform/prebuilts/fullsdk/sources/+/refs/heads/androidx-constraintlayout-release/android-35/com/android/internal/telephony/Phone.java . This code path is in the Android framework, not a `9,9` vendor property.
+
+Samsung HIDL radio bridge `LineageOS/android_hardware_samsung` `hidl/radio/1.3/Radio.cpp` forwards `getRadioCapability(serial)` into `getSecIRadio()`, and `SecRadioResponse.cpp` forwards `getRadioCapabilityResponse(info,rc)` into `radioResponse` without modifying RAF. With the actual vendor binaries, we need data on whether a real `getRadioCapabilityResponse` is absent, invalid, rejected, or stale. **Don't fabricate a capability value or patch a static LTE RAF until CP confirms capability**. Accurate one-slot LTE registration remains unverified.
+
+Locally generated tool `ALICE_A16_RAF_ROOTCAUSE_V2.py` selftested; it now parses numeric RAF from aborts, timestamps, dedups subscription masks, separates abort events from actual `setAllowedNetworkTypesBitmap`, and sanitizes before saving. V2 report required to know whether RAF numeric is truly 0 and whether the abort occurred recently, before any targeted source change.
+
+Never disturb Camera+Video6 branch; no flash-ready LTE image.
