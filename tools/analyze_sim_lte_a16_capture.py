@@ -32,7 +32,7 @@ def read(folder,name):
 def per_phone_state(raw):
     """Extract only anonymized Phone Id sections from Android16 TelephonyRegistry."""
     raw = raw.split("last known state:", 1)[-1]
-    marks = list(re.finditer(r"(?m)^\\s*Phone Id\\s*=\\s*([0-9]+)\\s*$", raw))
+    marks = list(re.finditer(r"(?m)^\s*Phone Id\s*=\s*([0-9]+)\s*$", raw))
     states = []
     for i, mark in enumerate(marks):
         phone = int(mark.group(1))
@@ -40,10 +40,10 @@ def per_phone_state(raw):
             continue
         end = marks[i+1].start() if i+1 < len(marks) else len(raw)
         section = raw[mark.end():end]
-        service = next((x for x in section.splitlines() if re.match(r"\\s*mServiceState=", x)), "")
-        vr = re.search(r"\\bmVoiceRegState\\s*=\\s*\\d+\\(([A-Z_]+)\\)", service)
-        dr = re.search(r"\\bmDataRegState\\s*=\\s*\\d+\\(([A-Z_]+)\\)", service)
-        rat = re.search(r"\\bmRilDataRadioTechnology\\s*=\\s*(?:\\d+\\(([A-Z0-9_+]+)\\)|([A-Z0-9_+]+))", service, re.I)
+        service = next((x for x in section.splitlines() if re.match(r"\s*mServiceState=", x)), "")
+        vr = re.search(r"\bmVoiceRegState\s*=\s*\d+\(([A-Z_]+)\)", service)
+        dr = re.search(r"\bmDataRegState\s*=\s*\d+\(([A-Z_]+)\)", service)
+        rat = re.search(r"\bmRilDataRadioTechnology\s*=\s*(?:\d+\(([A-Z0-9_+]+)\)|([A-Z0-9_+]+))", service, re.I)
         states.append((phone, vr.group(1) if vr else "?",
                        dr.group(1) if dr else "?",
                        (rat.group(1) or rat.group(2)) if rat else "?"))
