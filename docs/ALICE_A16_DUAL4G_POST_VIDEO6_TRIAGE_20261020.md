@@ -83,3 +83,17 @@ https://github.com/LineageOS/android_hardware_samsung/blob/lineage-24.0/ril/secr
 A local read-only, sanitized one-command tool `ALICE_A16_LTE_RIL_POLICY_AUDIT.py` has been created for the user to inspect the live property chain, file-vs-runtime mismatch, and service lifecycle without changing CP, EFS or the working Camera+Video6 vendor. If properties already enable LTE, **do not add an arbitrary property or build a speculative firmware image**: investigate modem registration and live scanning / service response, and confirm the SIM's 4G provisioning.
 
 Separate hardware limitation: SM-G955FD DSDS evidence indicates at most one LTE registration at a time, the other SIM 3G; hardware CP capability cannot be forced by setting both mask bits.
+
+## 2026-10-20 11:58:58 — RIL policy V2 result; next high-signal LTE policy intersection
+
+New user V2 audit shows:
+- `ro.telephony.default_network=9,9`, `ro.vendor.radio.default_network=9` both LTE-capable.
+- `persist.radio.def_network` and `ro.vendor.sec.radio.def_network` blank (not proof of LTE blockage).
+- `persist.radio.multisim.config=dsds`, slotcount=2, both SIMs LOADED, CP boot and RIL running.
+- `init.svc.network_config=stopped`, `init.svc.sim_config=stopped` consistent with `oneshot` service lifecycle; no evidence that this is a fault.
+- SIM1 CS DENIED / PS NOT_REG_OR_SEARCHING on UMTS. SIM2 HOME UMTS / PS HOME HSPA+. No LTE attach.
+- Shell `/vendor/build.prop` not readable; this is a diagnostics access limitation, not itself a proven reason LTE fails.
+
+**New priority informed by AOSP source**: `Phone.getEffectiveAllowedNetworkTypes()` ANDs all the allowed-network-type policies from `mAllowedNetworkTypesForReasons`, and `Phone.updateAllowedNetworkTypes()` ANDs the resulting effective mask with the modem's RAF. Hence `cmd phone get-allowed-network-types-for-users -s 1` only checks `USER`; `CARRIER`, `POWER`, `TEST`, `ENABLE_2G` can still remove LTE. Reference: https://github.com/LineageOS/android_frameworks_opt_telephony/blob/lineage-23.2/src/java/com/android/internal/telephony/Phone.java (API branch may differ; inspect code version when patching). The stored per-subscription reasons are available in `dumpsys isub` `SubscriptionInfoInternal.allowedNetworkTypesForReasons` as `user=<decimal>,power=<decimal>,carrier=<decimal>...` (never share its raw dump: contains SIM phone number/ICCID/IMSI). LTE bit: `4096` = `1 << 12`.
+
+Created externally, offline-tested `ALICE_A16_LTE_EFFECTIVE_POLICY.py` to sanitize/inspect both slots' policy reasons and report `LTE_EXCLUDED_BY_<REASON>` when appropriate. If all stored reasons contain LTE, next study `modemRaf`, RIL network-scan and LTE network registration—not property tweaks or a speculative vendor flash. Preserve camera+video6 branch and CP/EFS/NV partitions.
