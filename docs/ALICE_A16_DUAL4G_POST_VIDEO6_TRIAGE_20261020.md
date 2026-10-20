@@ -140,3 +140,20 @@ Samsung HIDL radio bridge `LineageOS/android_hardware_samsung` `hidl/radio/1.3/R
 Locally generated tool `ALICE_A16_RAF_ROOTCAUSE_V2.py` selftested; it now parses numeric RAF from aborts, timestamps, dedups subscription masks, separates abort events from actual `setAllowedNetworkTypesBitmap`, and sanitizes before saving. V2 report required to know whether RAF numeric is truly 0 and whether the abort occurred recently, before any targeted source change.
 
 Never disturb Camera+Video6 branch; no flash-ready LTE image.
+
+## 2026-10-20 12:10:35 — reproduced unknown modem RAF=0; targeted Android framework resource check
+
+User attached `ALICE_A16_RAF_ROOTCAUSE_V2_20261020_121035.txt`.
+- Eight framework abort messages at `11:37:10`, `11:37:12`, `11:37:14`, `11:37:15` all read `modemRaf=0`, but source tool could **not attribute slot**. The times are earlier than report collection and are NOT proof ongoing RAF0.
+- No successful `modemRafBitMask/filteredRafBitMask` pairs or `getRadioCapability` samples retained; zero detected set requests in filtered window. No verified LTE attach, SIM2 remains on 3G, SIM1 registration denied.
+- Stored subscription masks `user=LTE_INCLUDED` both SIMs; other masks not proven.
+- External upstream code confirms `Phone.updateAllowedNetworkTypes()` returns before sending network-type bitmask if its cached `RadioCapability.radioAccessFamily` is unknown. Distinguish this **framework cached capability** from physical modem's actual capabilities; `modemRaf=0` in abort refers to cached framework RadioCapability, NOT a definitive statement that Exynos8895 physically lacks LTE.
+- Samsung HIDL bridge `LineageOS/android_hardware_samsung/hidl/radio/1.3/Radio.cpp` forwards `getRadioCapability`; `SecRadioResponse.cpp` forwards callback. The working vendor source contains Samsung proprietary `libsec-ril.so` binaries: static source inspection alone CANNOT establish real callback behavior.
+- Existing working vendor includes `vendor/overlay/framework-res__auto_generated_rro_vendor.apk` with `config_radio_access_family="GSM|CDMA|EVDO|WCDMA|LTE"`. Duplicating it in a second RRO without verifying **Android 16 runtime resolution** is not justified.
+- Targeted read-only runtime checks (no raw phone logs shared):
+  ```sh
+  adb -d shell 'cmd overlay lookup --user 0 android android:string/config_radio_access_family'
+  adb -d shell 'cmd overlay list --user 0 android | grep -i -E "framework|rro|vendor"'
+  adb -d shell 'dumpsys phone | grep -E -i -m 30 "mRadioCapability|RadioCapability|radioAccessFamily|modemRafBitMask|filteredRafBitMask"'
+  ```
+  If lookup resolves empty/missing, investigate Android system overlay target policy / missing framework fallback; if resolves LTE but cached modem RAF remains 0, inspect GET_RADIO_CAPABILITY request/response handling, firmware/library compatibility, and startup order; **do not fabricate LTE RAF support**. No CP/EFS edits, no blind modem firmware flash, protect stable Camera+Video6.
