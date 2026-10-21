@@ -135,7 +135,7 @@
     <local name="SUPPORT_TAP_AND_HOLD_CAMERA_BUTTON" value="true" />
 
     <!-- Scene optimizer -->
-    <local name="SUPPORT_SCENE_OPTIMIZER" value="true" />
+    <local name="SUPPORT_SCENE_OPTIMIZER" value="false" />
  
     <!-- Lens dirty detection -->
     <local name="SUPPORT_LENS_DIRTY_DETECTION" value="true" />
@@ -201,7 +201,7 @@
 
     <local name="SUPPORT_QUICK_TAKE" value="false" />
 
-    <local name="SUPPORT_PHOTO_NIGHT" value="true"/>
+    <local name="SUPPORT_PHOTO_NIGHT" value="false"/>
 
     <local name="SUPPORT_NIGHT_CAPTURE_STOP" value="true"/>
 	
