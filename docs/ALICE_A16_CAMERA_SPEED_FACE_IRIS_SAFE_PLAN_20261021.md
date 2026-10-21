@@ -66,3 +66,43 @@ Device output only contains whitelisted service statuses, feature presence, erro
 5. If Iris service absent: find stock Exynos8895 legacy iris service/TEE ABI and secure bridge strategy; likely requires SYSTEM AND VENDOR changes, not just vendor. Never assume iris 1:1 backward-compatible with Android16 modern AIDL.
 
 **No new image should be flashed solely because this audit identifies a service or a cache optimization. CI image is research-only and requires verification of actual vendor partition geometry, Camera rollback, and real device latency.**
+
+
+## 2026-10-22: Blank Face setup and missing Iris menu confirmed by device user
+
+User reports that **face enrollment screen does nothing** and **iris enrollment option is absent entirely** after experimenting with vendor. These are NOT solved by the camera metadata fast-path.
+
+The locally extracted, camera-working SYSTEM V2 directory exists on Zorin at:
+`/mnt/alice-ssd/ALICE_SYSTEM/GITHUB_SYSTEM_V2_IMPORT/SystemDreamlte/system`
+(under it, for example: `system/priv-app/SecSettings/SecSettings.apk`).
+
+The GitHub **SystemDreamlte** repository still lacks `baseline/system-v2-camera` (only `main`), so inspecting it remotely cannot resolve the missing Samsung Settings code.
+
+New read-only tool: `tools/alice_system_v2_face_iris_audit.py`. Run on Zorin against extracted SYSTEM V2, no re-extraction or Git upload needed:
+
+```bash
+curl -fLsS "https://raw.githubusercontent.com/HaloT455/Vendor-45-/work/a16-camera-fast-metadata-face-iris-audit/tools/alice_system_v2_face_iris_audit.py" \
+  -o ~/ALICE_SYSTEM_V2_FACE_IRIS_AUDIT.py
+python3 ~/ALICE_SYSTEM_V2_FACE_IRIS_AUDIT.py --output ~/ALICE_SYSTEM_V2_FACE_IRIS_REPORT.json
+```
+
+Also run existing read-only device audit to get Face HAL initialization, Binder registration, presence of actual sensors, high-level error counts only:
+
+```bash
+curl -fLsS "https://raw.githubusercontent.com/HaloT455/Vendor-45-/work/a16-camera-fast-metadata-face-iris-audit/tools/alice_camera_face_iris_device_audit.py" \
+  -o ~/ALICE_CAMERA_FACE_IRIS_AUDIT.py
+python3 ~/ALICE_CAMERA_FACE_IRIS_AUDIT.py --output ~/ALICE_CAMERA_FACE_IRIS_SAFE.json
+```
+
+Both JSON reports contain **no biometric template data**, no raw logcat and no SIM/IMEI information. Display only the JSON to the researcher.
+
+**Cross-check:** If the AIDL HAL is not operational, investigate libraries, service registration and SELinux; if registered but no physical sensor, investigate genuine Samsung face sensor back-end. If local SYSTEM V2 Settings lacks iris UI code, an Android16-compatible Settings and secure iris service integration is required. No fabricated AIDL HAL, no simulated biometric pass events, and never manually energize the iris IR LED because Samsung's hardware safety restrictions matter.
+
+Official Samsung details: S8 has a dedicated IR iris camera/LED and specific automatic shutoff/safety behavior:
+https://news.samsung.com/global/in-depth-look-samsungs-biometric-technologies-bring-added-security-and-convenience-to-the-galaxy-s8
+https://www.samsung.com/hk_en/support/mobile-devices/galaxy-s8-is-it-harmful-being-ir-irradiated-on-the-eyes-for-authentication/
+
+AOSP Android16's published biometrics HAL directory contains `common`, `face`, `fingerprint` only, requiring OEM-specific integration for iris:
+https://android.googlesource.com/platform/hardware/interfaces/+/android16-release/biometrics/
+
+**No new vendor flash is justified for these features until runtime Face diagnostics and local SYSTEM V2 UI inventory are reviewed.**
