@@ -13,6 +13,8 @@ on:
       - "vendor/build.prop"
       - "vendor/etc/init/**"
       - "tools/test_camera_fast_biometric_contract.py"
+      - "tools/alice_system_v2_face_iris_audit.py"
+      - "tools/test_system_v2_face_iris_audit.py"
       - ".github/workflows/alice-a16-camera-fast-face-iris-audit.yml"
       - ".github/workflows/alice-a16-samsung-video6-fix.yml"
   workflow_dispatch:
@@ -60,6 +62,7 @@ jobs:
           python3 tools/test_camera_regression_20261019.py
           python3 tools/test_camera_video6_contract.py
           python3 tools/test_camera_fast_biometric_contract.py
+          python3 tools/test_system_v2_face_iris_audit.py
 
       - name: Verify source vendor and legacy HALs
         run: |
