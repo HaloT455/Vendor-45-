@@ -376,12 +376,24 @@ static int wrapped_get_info(int id,camera_info_t *info) {
     int res=delegate->get_camera_info(id,info);
     if(res!=0||!info||!info->static_camera_characteristics)return res;
     if(id<0||id>=MAX_CAMERAS)return res;
-    pthread_mutex_lock(&mu);
-    if(prepare_ops()&&!static_metadata[id])
-        static_metadata[id]=augment(info->static_camera_characteristics);
-    if(static_metadata[id])
-        info->static_camera_characteristics=static_metadata[id];
-    pthread_mutex_unlock(&mu);
+    /* The original bridge always took a process-wide mutex even when the
+     * immutable camera characteristics had already been augmented.
+     * Publish once with release ordering; all subsequent Camera2 metadata
+     * queries can read the cached pointer without waiting for another camera.
+     * No changes to sensor, capture requests, JPEG, video or face/iris. */
+    camera_metadata_t *cached=__atomic_load_n(&static_metadata[id],__ATOMIC_ACQUIRE);
+    if(!cached) {
+        pthread_mutex_lock(&mu);
+        cached=__atomic_load_n(&static_metadata[id],__ATOMIC_RELAXED);
+        if(!cached && prepare_ops()) {
+            cached=augment(info->static_camera_characteristics);
+            if(cached)
+                __atomic_store_n(&static_metadata[id],cached,__ATOMIC_RELEASE);
+        }
+        pthread_mutex_unlock(&mu);
+    }
+    if(cached)
+        info->static_camera_characteristics=cached;
     return res;
 }
 
