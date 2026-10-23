@@ -45,8 +45,12 @@ def main():
 
     props = (ROOT / "vendor/build.prop").read_text().splitlines()
     for key in ("ro.product.vendor.device=dream2lte", "ro.telephony.default_network=9,9", "ro.radio.noril=no"):
-        if props.count(key) != 1:
-            errors.append("Vendor property mismatch: " + key)
+        matches = props.count(key)
+        if matches < 1 or (key.startswith("ro.telephony.default_network=") and matches != 1):
+            errors.append("Vendor property missing or ambiguous: " + key)
+        propname = key.split("=", 1)[0] + "="
+        if any(row.startswith(propname) and row != key for row in props):
+            errors.append("Vendor property conflicting values: " + propname[:-1])
     init = (ROOT / "vendor/etc/init/init.vendor.rilcommon.rc").read_text()
     if "exec_start network_config" not in init:
         errors.append("Samsung NetworkConfig boot hook missing")
