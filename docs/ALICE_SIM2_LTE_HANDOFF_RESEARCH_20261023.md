@@ -57,3 +57,17 @@ Interpret:
 If SIM2 does not reach LTE **even with SIM1 physically removed**, distinguish provisioning/coverage, SIM hardware, network mode, modem CP and Android framework bugs. If SIM2 reaches LTE alone but not when SIM1 is present, focus on DSDS LTE owner transition. Only patch the identified component after the controlled results; DO NOT transplant proprietary RIL binaries, invent modem RAF, modify EFS/IMEI, or flash old ramdisk with new R16 EnergyStep.
 
 No boot/vendor modification is made in this investigation branch. The owner's working camera/video and both SIM functions remain protected. Green GitHub CI checks only code and byte preservation, **not any device's ability to use two LTE SIMs**.
+
+## 2026-10-23: Simultaneous LTE candidate gate (no fake 4G modem patch)
+
+Official Samsung Members 2018 response for Galaxy S8 dual-SIM states choosing 4G on one slot switches the other to a lower network:
+https://r2.community.samsung.com/t5/Galaxy-S/How-can-i-get-those-sim-4G-network/m-p/160771/highlight/true
+
+Exynos 8895 specifications confirm a single integrated LTE Cat.16 modem, but do not advertise two independent concurrent LTE registrations:
+https://semiconductor.samsung.com/processor/mobile-processor/exynos-9-series-8895/
+
+AOSP `cmd phone set-allowed-network-types-for-users` only sets the **USER** allowed-RAT mask; it cannot create another LTE baseband/RF stack. The existing vendor already sets `ro.telephony.default_network=9,9`, and both user LTE policies were previously observed allowed. An extra property or setting is not a justified dual-4G modification.
+
+Run `python3 tools/alice_sim2_lte_handoff_probe.py --dualcheck` with two SIMs inserted. This evaluates both current RAT indicators **without changing anything**, marks only `BOTH_LTE_RAT_REPORTED_NEEDS_WWAN_CONFIRMATION` when both SIMs report LTE, and expressly refuses to treat properties alone as two LTE registrations. True proof requires contemporaneous `WWAN PS HOME LTE` registration from both phone IDs, verified separately and without exposing subscriber data.
+
+No flash-ready boot/vendor `4G+4G` mod can be justified from the available hardware documentation, proprietary modem evidence or real-device logs. The only testable software goal remains LTE-owner handoff to SIM2 (with SIM1 falling back), dependent on current Android16 RIL/RadioConfig behavior. Do not disturb CP/EFS/NV/IMEI or the user-verified camera vendor.
