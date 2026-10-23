@@ -44,6 +44,18 @@ python3 alice_lte_slot1_policy_trial.py --rollback
 
 If the script reports `slot0_lte_allowed: true` then LTE is already enabled at USER level, and **no patch to build.prop/early init/switching masks can fix the SIM1 registration alone**. Next step is masked-slot Telephony allowed-type intersections, RIL RadioCapability callbacks, network attach reasons, and baseband CP LTE allocation; not firmware flashing nor any claim of 4G+4G.
 
+## User V12R5T runtime result and fixed parser (2026-10-24)
+
+The actual device printed:
+
+`GPRS|EDGE|UMTS|HSDPA|HSUPA|HSPA|LTE|HSPA+|GSM|LTE_CA`
+
+for `cmd phone get-allowed-network-types-for-users -s 0`. This **explicitly includes LTE** in USER policy. Older A/B tester incorrectly expected a raw binary output and mistakenly used `1 << 13` for LTE, while Android TelephonyManager's `NETWORK_TYPE_BITMASK_LTE` equals `4096 = 1 << 12`. The old selftest fixture incorrectly asserted a bit in a synthetic binary mask. **Both are testing-tool bugs, not evidence of phone or Vendor firmware errors.**
+
+Fixed `tools/alice_lte_slot1_policy_trial.py`: parses AOSP symbolic RAT output into the correct `1 << (network_type - 1)` bitmask; also supports binary output; rejects unknown names and stops without writing; corrected LTE bit to 4096; selftest uses the owner's actual symbolic string. The A/B now reports `NO_POLICY_FIX_NEEDED` instead of modifying USER policy when LTE is already enabled. Official AOSP GET prints a symbolic mask, SET expects binary: https://android.googlesource.com/platform/packages/services/Telephony/+/refs/heads/main/src/com/android/phone/TelephonyShellCommand.java .
+
+**NEXT PROBLEM IS NOT USER RAT POLICY:** Viettel SIM1 remains `mVoiceRegState=1(OUT_OF_SERVICE),mDataRegState=1(OUT_OF_SERVICE)`; MobiFone SIM2 shows voice IN_SERVICE, data OUT_OF_SERVICE. `gsm.network.type=UMTS,UMTS`, `gsm.operator.alpha=,MobiFone`. Both physical SIMs can stay installed. Gather slot mapping and sanitized radio reject/RadioCapability events before changing modem or system image. Do not repeatedly reset `ro.telephony.default_network=9,9`.
+
 ## Host safety constraints
 
 For S8+ Exynos 8895, 4G+4G requires two independently observed LTE PS registrations at the same time; neither two HIDL IRadio names nor `9,9` satisfies this criterion. Never use Redmi Qualcomm firmware/binaries on Samsung. Do not overwrite Test7 proprietary RIL ELF, Samsung modem firmware, CP, EFS or IMS profiles without verified rollback and hardware evidence.
