@@ -1,0 +1,36 @@
+name: ALICE S8+ SIM2 LTE handoff analysis — source-only
+
+on:
+  push:
+    branches:
+      - work/a16-sim2-lte-handoff-audit-20261023
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sim2-lte-analysis:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Test read-only probe and syntax
+        run: |
+          python3 -m py_compile tools/alice_sim2_lte_handoff_probe.py
+          python3 tools/alice_sim2_lte_handoff_probe.py --selftest
+      - name: Preserve the owner-verified Camera and RIL source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin work/a16-r16-paired-sim-camera-20261023:refs/remotes/origin/work/a16-r16-paired-sim-camera-20261023
+          if test -n "$(git diff --name-only origin/work/a16-r16-paired-sim-camera-20261023 HEAD -- vendor metadata tools/native_camera)"; then
+            echo "::error::Camera, radio vendor inputs or baseline metadata changed"
+            exit 1
+          fi
+          test -f tools/test_sim_pair_contract.py
+          test -f docs/ALICE_R16_VENDOR_SIMCAM_PAIR_20261023.md
+          echo "PASS: no EROFS/Camera HAL/RIL/kernel/CP image changes. No flash artifact produced."
