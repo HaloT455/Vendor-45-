@@ -16,12 +16,34 @@ import subprocess
 import sys
 import time
 
-LTE_BIT = 1 << 13
+LTE_BIT = 1 << 12  # TelephonyManager.NETWORK_TYPE_BITMASK_LTE = 4096
 DEVICE = "dream2lte"
 BACKUP = Path("ALICE_S8P_SIM1_LTE_POLICY_BACKUP.json")
-SUPPORTED = re.compile(r"^[01]{8,63}$")
-REG = re.compile(r"m(?:Voice|Data)RegState\s*=\s*(-?\d+)\s*\(")
-STATE = re.compile(r"m(ServiceState|DataRegState|VoiceRegState)")
+SUPPORTED = re.compile(r"^[01]{1,63}$")
+# Android TelephonyManager.NETWORK_TYPE_* values; the bit is 1 << (value - 1).
+# Android's cmd phone GET prints symbolic RAT names; its SET accepts binary.
+NETWORK_IDS = {
+    "GPRS": 1, "EDGE": 2, "UMTS": 3, "CDMA": 4,
+    "EVDO_0": 5, "EVDO_A": 6, "1xRTT": 7, "HSDPA": 8,
+    "HSUPA": 9, "HSPA": 10, "IDEN": 11, "EVDO_B": 12,
+    "LTE": 13, "EHRPD": 14, "HSPAP": 15, "HSPA+": 15,
+    "GSM": 16, "TD_SCDMA": 17, "IWLAN": 18,
+    "LTE_CA": 19, "NR": 20,
+}
+
+
+def parse_user_mask(output: str) -> int:
+    rows = [line.strip() for line in output.splitlines() if line.strip()]
+    if len(rows) != 1:
+        raise RuntimeError("Unexpected Android USER RAT response: " + repr(output[:180]))
+    value = rows[0]
+    if SUPPORTED.fullmatch(value):
+        return int(value, 2)
+    names = value.split("|")
+    if not names or len(set(names)) != len(names) or any(n not in NETWORK_IDS for n in names):
+        raise RuntimeError("Unrecognized Android USER RAT labels (no change made): " + repr(value[:180]))
+    return sum(1 << (NETWORK_IDS[name] - 1) for name in names)
+
 
 
 def adb(*arguments: str) -> str:
@@ -38,11 +60,7 @@ def prop(name: str) -> str:
 
 def read_mask(slot: int = 0) -> int:
     output = adb("cmd", "phone", "get-allowed-network-types-for-users", "-s", str(slot))
-    candidates = [s.strip() for s in output.splitlines() if SUPPORTED.fullmatch(s.strip())]
-    if len(candidates) != 1:
-        raise RuntimeError("cmd phone did not return a recognized binary USER RAT mask: "
-                           + repr(output[:150]))
-    return int(candidates[0], 2)
+    return parse_user_mask(output)
 
 
 def set_mask(value: int, slot: int = 0):
@@ -177,8 +195,18 @@ def selftest():
         assert bool(mask & LTE_BIT) == bool(int(format(mask, "b"), 2) & LTE_BIT)
     assert SUPPORTED.fullmatch("01001111101111111111")
     assert not SUPPORTED.fullmatch("0102")
-    assert (int("01000001000000000000", 2) & LTE_BIT) != 0
-    print("PASS: LTE bitmask OR is non-destructive and parses AOSP shell binary masks.")
+    assert LTE_BIT == 4096
+    assert parse_user_mask("1000000000000") == LTE_BIT
+    assert parse_user_mask("GPRS|EDGE|UMTS|HSDPA|HSUPA|HSPA|LTE|HSPA+|GSM|LTE_CA") & LTE_BIT
+    assert parse_user_mask("HSPA+|LTE_CA") & LTE_BIT == 0
+    assert parse_user_mask("LTE") == LTE_BIT
+    try:
+        parse_user_mask("LTE|ALIEN_RAT")
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("Unrecognized RAT accepted")
+    print("PASS: LTE bit 4096; actual S8+ symbolic RAT list parsed; no unsafe RAT writes.")
 
 
 def main():
