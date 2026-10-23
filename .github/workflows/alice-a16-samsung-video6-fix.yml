@@ -1,8 +1,8 @@
-name: ALICE A16 SIM Reference RIL + Camera Video6 CI (UNTESTED)
+name: ALICE S8P Android16 R16 Vendor SIM+Camera Paired CI (UNTESTED)
 
 on:
   push:
-    branches: ["work/a16-sim-reference-boot-vendor-20261023"]
+    branches: ["work/a16-r16-paired-sim-camera-20261023"]
     paths:
       - "tools/native_camera/**"
       - "tools/stage_hlong_camera_wrapper.py"
@@ -17,6 +17,7 @@ on:
       - "tools/test_system_v2_face_iris_audit.py"
       - "tools/test_shutter_feature_gate.py"
       - "tools/test_sim_reference_regression.py"
+      - "tools/test_sim_pair_contract.py"
       - "docs/ALICE_SIM_REFERENCE_20261023.md"
       - "vendor/etc/alice-test7/camera-feature.xml"
       - ".github/workflows/alice-a16-camera-fast-face-iris-audit.yml"
@@ -37,16 +38,25 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Checkout pinned R16 kernel source for paired compatibility
+        uses: actions/checkout@v4
+        with:
+          repository: HaloT455/dream2lte-45
+          ref: b892e28db47fb9aaf2df8d3196050a76288b6caf
+          path: pair-kernel
+          persist-credentials: false
+
       - name: Guard original baseline and preserve two-SIM vendor config
         shell: bash
         run: |
           set -euo pipefail
-          test "$GITHUB_REF_NAME" = "work/a16-sim-reference-boot-vendor-20261023"
+          test "$GITHUB_REF_NAME" = "work/a16-r16-paired-sim-camera-20261023"
           test "$(git rev-parse refs/remotes/origin/baseline/test7)" = "d5748652ddf1eb4cdc18d2f51cbbde8f6fd16170"
           python3 tools/test_vendor_config_fixes.py
           grep -qx 'ro.telephony.default_network=9,9' vendor/build.prop
           grep -Fxq '    setprop ro.telephony.default_network ${ro.vendor.radio.default_network}' vendor/etc/init/init.vendor.rilcommon.rc
           python3 tools/test_sim_reference_regression.py
+          python3 tools/test_sim_pair_contract.py --kernel-root pair-kernel --output out/paired-simcam-contract.json
           # Only known Camera A/B flags + restored reference RIL init may differ.
           changed="$(git diff --name-only refs/remotes/origin/work/a16-camera-fast-metadata-face-iris-audit HEAD -- vendor metadata)"
           expected="$(printf 'vendor/etc/alice-test7/camera-feature.xml\nvendor/etc/init/init.vendor.rilcommon.rc')"
@@ -156,7 +166,7 @@ jobs:
         shell: bash
         run: |
           echo "### ALICE A16 Samsung Camera 4-5s shutter lag photo-gate AB experiment" >> "$GITHUB_STEP_SUMMARY"
-          echo "Camera Photo/Video6 bridge remains unchanged; only the 2 shutter feature flags and a source-matched RIL init.rc are modified." >> "$GITHUB_STEP_SUMMARY"
+          echo "PAIR ALICE-S8P-A16-R16-SIMCAM-20261023: R16 modem Kconfig and the original Samsung RIL/Camera Video6 contracts checked. A static PASS does not mean device-ready." >> "$GITHUB_STEP_SUMMARY"
           echo "SIM reference init statement may fail on immutable ro property after property freeze. Build PASS is not mobile-network runtime verification." >> "$GITHUB_STEP_SUMMARY"
           echo "Hypothesis: scene detection/auto night may delay photo. This is NOT a proven 4-5s fix; measure shutter-to-JPEG on device before flashing and after safe rollback-capable flash." >> "$GITHUB_STEP_SUMMARY"
           echo "Face service is already registered in device evidence but enrollment blank; Iris is not exposed. This Camera-only AB test does NOT repair Face/Iris or Viettel LTE." >> "$GITHUB_STEP_SUMMARY"
@@ -166,11 +176,12 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ALICE-A16-SIM-REFERENCE-CAMERA-VIDEO6-UNTESTED-NO-FLASH
+          name: ALICE-S8P-A16-R16-PAIR-VENDOR-SIMCAM-UNTESTED-NO-FLASH
           retention-days: 7
           compression-level: 1
           if-no-files-found: warn
           path: |
+            out/paired-simcam-contract.json
             out/camera-radio-source-audit.json
             out/camera-wrapper-stage.json
             out/preview-bridge-stage.json
