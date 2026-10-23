@@ -18,13 +18,13 @@ assert "property:ro.build.fingerprint=" not in rc
 assert "mount none /vendor/etc/alice-test7/camera-feature.xml /system/cameradata/camera-feature.xml bind" in rc
 assert (root / "vendor/etc/alice-test7/camera-feature.xml").is_file()
 ril = (root / "vendor/etc/init/init.vendor.rilcommon.rc").read_text()
-# Experimental reference-recovery branch only: replicate the exact init rc that
-# the user's SIM-working vendor.new.dat.br contains. A late ro property write
-# may be rejected if already frozen on Android 16; CI does not prove runtime.
-import hashlib
-assert hashlib.sha256(ril.encode()).hexdigest() == "c61001ec4a485b436c99fb2d55786aabd92d6fc9f5e4b1b9beff458eb31be610", "RIL init differs from reference working vendor"
-assert ril.count("setprop ro.telephony.default_network ${ro.vendor.radio.default_network}") == 1
+# A/B against previous owner-reference init: keep the identical source
+# NetworkConfig service while preventing late overwrite of Android16's
+# immutable per-phone ro.telephony.default_network=9,9.
+assert "exec_start network_config" in ril
+assert "exec_start sim_config" in ril
+assert "setprop ro.telephony.default_network" not in ril
 props = (root / "vendor/build.prop").read_text()
 assert "ro.vendor.sec.radio.def_network=9\n" in props
 assert props.count("ro.telephony.default_network=9,9\n") == 1, "Android 16 DSDS requires per-phone default list"
-print("PASS: Test7 init mode, camera mount, 9,9 early property, source-matched legacy RIL init; NOT device-verified")
+print("PASS: Test7 init mode, camera mount, 9,9 early property, Android16 immutable ro default preserved; NOT device-verified")
