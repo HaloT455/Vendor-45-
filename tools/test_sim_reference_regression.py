@@ -19,7 +19,6 @@ VENDOR = ROOT / "vendor"
 
 # SHA256 confirmed by extracting these files from the owner's OTA EROFS.
 REFERENCE_TEXT = {
-    "etc/init/init.vendor.rilcommon.rc": "c61001ec4a485b436c99fb2d55786aabd92d6fc9f5e4b1b9beff458eb31be610",
     "etc/init/vendor.sem.rilchip.rc": "f3e6eb2e5330a3ba5e1a650ca6fc39b0b9ba25b9843743b7da8f15632a83380f",
     "etc/vintf/manifest/vendor.samsung.hardware.radio_manifest_2_33.xml": "f7d0dfced1b52feb24202d9d8ce1e179dfd67f4c57d42081f57171da03922f2f",
     "etc/vintf/manifest/vendor.samsung.hardware.sehradio_manifest_2_33.xml": "ad87982c72367cea3f368a023db52ef9a0b7da512d2b9689db8e3ccd89987afe",
@@ -70,10 +69,10 @@ def run() -> dict:
         issues.append("Missing Samsung ISehRadio dual-slot instances")
 
     initrc = (VENDOR / "etc/init/init.vendor.rilcommon.rc").read_text()
-    if initrc.count("exec_start network_config") != 1 or initrc.count(
-        "setprop ro.telephony.default_network ${ro.vendor.radio.default_network}"
-    ) != 1:
-        issues.append("Source-matched network init lost")
+    if initrc.count("exec_start network_config") != 1 or initrc.count("exec_start sim_config") != 1:
+        issues.append("Samsung network/sim init service changed")
+    if "setprop ro.telephony.default_network" in initrc:
+        issues.append("Late immutable ro.telephony.default_network overwrite reintroduced")
     props = (VENDOR / "build.prop").read_text()
     if props.count("ro.telephony.default_network=9,9\n") != 1:
         issues.append("Android16 per-phone network defaults changed")
@@ -84,10 +83,11 @@ def run() -> dict:
         "status": "PASS_STATIC" if not issues else "FAIL_STATIC",
         "reference": "owner-supplied vendor.new.dat.br and boot.img, 2026-10-23",
         "text_files_byte_matched_to_reference": len(REFERENCE_TEXT),
+        "ril_init_intentionally_differs_from_reference": True,
         "radio_binary_checks": "match existing GitHub Test7 manifest only; OTA binary hashes unverified",
         "sim_registration_verified_by_ci": False,
-        "legacy_ro_default_setprop_expected_on_branch": True,
-        "ro_default_setprop_can_fail_when_property_immutable": True,
+        "legacy_ro_default_setprop_expected_on_branch": False,
+        "ro_default_setprop_can_fail_when_property_immutable": False,
         "boot_compatibility_verified_by_ci": False,
         "safe_to_flash": False,
         "errors": issues,
