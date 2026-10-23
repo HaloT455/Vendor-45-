@@ -145,6 +145,7 @@ def trial(wait_seconds: int):
     new = old | LTE_BIT
     print("ATTEMPT: add LTE bit to SIM1 USER allowed RAT, preserve all other bits.")
     applied = False
+    success = False
     try:
         set_mask(new)
         applied = True
@@ -153,6 +154,7 @@ def trial(wait_seconds: int):
             r = snapshot()
             first = r["slot0_reported_rat"].upper()
             if first.startswith("LTE") and r["registration"]["slot0_data"] == "IN_SERVICE":
+                success = True
                 print("LTE_PS_REGISTERED_OBSERVED:", json.dumps(r, ensure_ascii=False))
                 print("WARNING: verify Viettel identity, actual data, calling and VoLTE.")
                 print("To restore the original network mask: python3 "
@@ -162,7 +164,7 @@ def trial(wait_seconds: int):
         print("NO_LTE_PS_REGISTRATION: restoring original USER policy automatically.")
     finally:
         # Preserve backup if rollback cannot reach adb, allowing manual recovery.
-        if BACKUP.exists():
+        if BACKUP.exists() and not success:
             if applied:
                 print("NOTE: if adb connection was lost, run --rollback manually.")
             rollback()
