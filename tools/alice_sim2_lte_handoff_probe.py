@@ -99,6 +99,28 @@ def take_snapshot(label: str) -> dict:
         "efs_or_modem_modified": False,
     }
 
+def dual_lte_check(snapshot: dict) -> dict:
+    """Report whether BOTH current RAT indicators read LTE, never fabricate WWAN registration."""
+    slots = {s["phone_id"]: s.get("rat_class") for s in snapshot.get("slots", [])}
+    sim_states = snapshot.get("properties", {}).get("gsm.sim.state", "").split(",")
+    both_loaded = len(sim_states) >= 2 and all(x.strip().upper() in
+                       {"LOADED", "READY"} for x in sim_states[:2])
+    both_lte = (slots.get(0) == "LTE_REPORTED" and slots.get(1) == "LTE_REPORTED")
+    return {
+        "candidate_both_lte_rat": bool(both_lte and both_loaded),
+        "slot0_reported_rat": slots.get(0, "UNKNOWN"),
+        "slot1_reported_rat": slots.get(1, "UNKNOWN"),
+        "both_sim_states_ready": both_loaded,
+        "independent_wwan_ps_home_lte_verified": False,
+        "simultaneous_4g_service_proven": False,
+        "result": ("BOTH_LTE_RAT_REPORTED_NEEDS_WWAN_CONFIRMATION"
+                   if both_lte and both_loaded else
+                   "BOTH_LTE_NOT_OBSERVED_OR_INCONCLUSIVE"),
+        "requires": "Two independently verified WWAN PS HOME LTE registrations on phoneId0 and phoneId1",
+        "modem_or_efs_written": False,
+    }
+
+
 def compare(sim1: dict, sim2: dict) -> dict:
     a, b = sim1["default_data_phone_id_verified"], sim2["default_data_phone_id_verified"]
     before = {x["phone_id"]: x["rat_class"] for x in sim1["slots"]}
@@ -140,6 +162,13 @@ def selftest() -> None:
          "slots": [{"phone_id": 0, "rat_class": "3G_REPORTED"},
                    {"phone_id": 1, "rat_class": "LTE_REPORTED"}]}
     assert compare(a, b)["status"] == "LTE_ROLE_HANDOFF_REPORTED"
+    two = {"properties": {"gsm.sim.state": "LOADED,LOADED"}, "slots":
+           [{"phone_id": 0, "rat_class": "LTE_REPORTED"},
+            {"phone_id": 1, "rat_class": "LTE_REPORTED"}]}
+    assert dual_lte_check(two)["candidate_both_lte_rat"]
+    assert not dual_lte_check(two)["simultaneous_4g_service_proven"]
+    two["slots"][1]["rat_class"] = "3G_REPORTED"
+    assert not dual_lte_check(two)["candidate_both_lte_rat"]
     b["slots"][1]["rat_class"] = "3G_REPORTED"
     assert compare(a, b)["status"] == "SIM2_LTE_HANDOFF_NOT_OBSERVED"
     b["default_data_phone_id_verified"] = None
@@ -151,6 +180,7 @@ def main() -> None:
     g = p.add_mutually_exclusive_group(required=True)
     g.add_argument("--snapshot", choices=["sim1", "sim2"])
     g.add_argument("--compare", nargs=2, metavar=("SIM1_JSON", "SIM2_JSON"))
+    g.add_argument("--dualcheck", action="store_true", help="read-only simultaneous dual LTE candidate gate")
     g.add_argument("--selftest", action="store_true")
     p.add_argument("--output", type=Path)
     args = p.parse_args()
@@ -161,6 +191,8 @@ def main() -> None:
         a = json.loads(Path(args.compare[0]).read_text())
         b = json.loads(Path(args.compare[1]).read_text())
         result = compare(a, b)
+    elif args.dualcheck:
+        result = dual_lte_check(take_snapshot("simultaneous_candidate_read_only"))
     else:
         result = take_snapshot(args.snapshot)
     output = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
