@@ -56,7 +56,7 @@ def main():
     init_path = ROOT / "vendor/etc/init/init.vendor.rilcommon.rc"
     init_bytes = init_path.read_bytes()
     init_blob_sha = hashlib.sha1(
-        ("blob " + str(len(init_bytes)) + "\\0").encode() + init_bytes
+        ("blob " + str(len(init_bytes))).encode() + bytes([0]) + init_bytes
     ).hexdigest()
     if init_blob_sha != "206f7250bc11680242256360049e0ab09c8e5986":
         errors.append("Android16 SIM2 LTE A/B RIL-init blob differs from approved Camera Video6 source")
