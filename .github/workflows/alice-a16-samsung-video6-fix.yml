@@ -1,8 +1,8 @@
-name: ALICE A16 Shutter Latency Photo Gate + Video6 CI (UNTESTED)
+name: ALICE A16 SIM Reference RIL + Camera Video6 CI (UNTESTED)
 
 on:
   push:
-    branches: ["work/a16-shutter-lag-photo-fast-feature-gate"]
+    branches: ["work/a16-sim-reference-boot-vendor-20261023"]
     paths:
       - "tools/native_camera/**"
       - "tools/stage_hlong_camera_wrapper.py"
@@ -16,6 +16,8 @@ on:
       - "tools/alice_system_v2_face_iris_audit.py"
       - "tools/test_system_v2_face_iris_audit.py"
       - "tools/test_shutter_feature_gate.py"
+      - "tools/test_sim_reference_regression.py"
+      - "docs/ALICE_SIM_REFERENCE_20261023.md"
       - "vendor/etc/alice-test7/camera-feature.xml"
       - ".github/workflows/alice-a16-camera-fast-face-iris-audit.yml"
       - ".github/workflows/alice-a16-samsung-video6-fix.yml"
@@ -39,18 +41,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$GITHUB_REF_NAME" = "work/a16-shutter-lag-photo-fast-feature-gate"
+          test "$GITHUB_REF_NAME" = "work/a16-sim-reference-boot-vendor-20261023"
           test "$(git rev-parse refs/remotes/origin/baseline/test7)" = "d5748652ddf1eb4cdc18d2f51cbbde8f6fd16170"
           python3 tools/test_vendor_config_fixes.py
           grep -qx 'ro.telephony.default_network=9,9' vendor/build.prop
-          ! grep -q 'setprop ro.telephony.default_network' vendor/etc/init/init.vendor.rilcommon.rc
-          # The only vendor input diff from last successful camera baseline
-          # is the two experimental photo flags in camera feature XML.
+          grep -Fxq '    setprop ro.telephony.default_network ${ro.vendor.radio.default_network}' vendor/etc/init/init.vendor.rilcommon.rc
+          python3 tools/test_sim_reference_regression.py
+          # Only known Camera A/B flags + restored reference RIL init may differ.
           changed="$(git diff --name-only refs/remotes/origin/work/a16-camera-fast-metadata-face-iris-audit HEAD -- vendor metadata)"
-          test "$changed" = "vendor/etc/alice-test7/camera-feature.xml"
+          expected="$(printf 'vendor/etc/alice-test7/camera-feature.xml\nvendor/etc/init/init.vendor.rilcommon.rc')"
+          test "$changed" = "$expected"
           python3 tools/test_shutter_feature_gate.py
           git diff --exit-code refs/remotes/origin/work/a16-camera-fast-metadata-face-iris-audit HEAD -- tools/native_camera
-          echo "PASS: vendor input changes only 2 photo flags; no native code, radio or system changes"
+          echo "PASS: Camera only photo flags changed; reference RIL init restored in trial; radio blobs/system/CP/EFS unchanged"
 
       - name: Host ELF and EROFS build tools
         run: |
@@ -65,6 +68,7 @@ jobs:
           python3 tools/test_camera_video6_contract.py
           python3 tools/test_camera_fast_biometric_contract.py
           python3 tools/test_shutter_feature_gate.py
+          python3 tools/test_sim_reference_regression.py
           python3 tools/test_system_v2_face_iris_audit.py
 
       - name: Verify source vendor and legacy HALs
@@ -126,20 +130,20 @@ jobs:
 
       - name: Build combined DSDS and Camera experimental vendor EROFS image
         run: |
-          python3 tools/build_vendor.py --allow-file-changes --max-image-bytes 629145600 --output out/vendor-a16-shutter-photo-gate-video6-UNTESTED.img
+          python3 tools/build_vendor.py --allow-file-changes --max-image-bytes 629145600 --output out/vendor-a16-sim-reference-video6-UNTESTED.img
 
       - name: Verify output report, EROFS magic and checksum
         shell: bash
         run: |
           set -euo pipefail
-          test -s out/vendor-a16-shutter-photo-gate-video6-UNTESTED.img
-          test "$(od -An -tx4 -j1024 -N4 out/vendor-a16-shutter-photo-gate-video6-UNTESTED.img | tr -d ' ')" = e0f5e1e2
-          sha256sum out/vendor-a16-shutter-photo-gate-video6-UNTESTED.img > out/CAMERA-SHUTTER-PHOTO-GATE-SHA256SUMS
+          test -s out/vendor-a16-sim-reference-video6-UNTESTED.img
+          test "$(od -An -tx4 -j1024 -N4 out/vendor-a16-sim-reference-video6-UNTESTED.img | tr -d ' ')" = e0f5e1e2
+          sha256sum out/vendor-a16-sim-reference-video6-UNTESTED.img > out/CAMERA-SHUTTER-PHOTO-GATE-SHA256SUMS
           python3 - <<'PY'
           import hashlib,json
           from pathlib import Path
-          img=Path("out/vendor-a16-shutter-photo-gate-video6-UNTESTED.img")
-          report=json.loads(Path("out/vendor-a16-shutter-photo-gate-video6-UNTESTED.report.json").read_text())
+          img=Path("out/vendor-a16-sim-reference-video6-UNTESTED.img")
+          report=json.loads(Path("out/vendor-a16-sim-reference-video6-UNTESTED.report.json").read_text())
           assert report["verified"] and report["entries"]==1433
           assert report["rebuilt_image_sha256"]==hashlib.sha256(img.read_bytes()).hexdigest()
           print("Physical file size:",img.stat().st_size)
@@ -152,7 +156,8 @@ jobs:
         shell: bash
         run: |
           echo "### ALICE A16 Samsung Camera 4-5s shutter lag photo-gate AB experiment" >> "$GITHUB_STEP_SUMMARY"
-          echo "Source input differs ONLY in SUPPORT_SCENE_OPTIMIZER=true->false and SUPPORT_PHOTO_NIGHT=true->false. Existing Camera Video6 and metadata bridge retained." >> "$GITHUB_STEP_SUMMARY"
+          echo "Camera Photo/Video6 bridge remains unchanged; only the 2 shutter feature flags and a source-matched RIL init.rc are modified." >> "$GITHUB_STEP_SUMMARY"
+          echo "SIM reference init statement may fail on immutable ro property after property freeze. Build PASS is not mobile-network runtime verification." >> "$GITHUB_STEP_SUMMARY"
           echo "Hypothesis: scene detection/auto night may delay photo. This is NOT a proven 4-5s fix; measure shutter-to-JPEG on device before flashing and after safe rollback-capable flash." >> "$GITHUB_STEP_SUMMARY"
           echo "Face service is already registered in device evidence but enrollment blank; Iris is not exposed. This Camera-only AB test does NOT repair Face/Iris or Viettel LTE." >> "$GITHUB_STEP_SUMMARY"
           echo "DO NOT FLASH without checking actual vendor partition size, boot/SELinux compatibility and recovery rollback." >> "$GITHUB_STEP_SUMMARY"
@@ -161,7 +166,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ALICE-A16-SHUTTER-PHOTO-GATE-VIDEO6-UNTESTED-NO-FLASH
+          name: ALICE-A16-SIM-REFERENCE-CAMERA-VIDEO6-UNTESTED-NO-FLASH
           retention-days: 7
           compression-level: 1
           if-no-files-found: warn
@@ -171,5 +176,5 @@ jobs:
             out/preview-bridge-stage.json
             out/stage_preview_bridge/build-report.json
             out/CAMERA-SHUTTER-PHOTO-GATE-SHA256SUMS
-            out/vendor-a16-shutter-photo-gate-video6-UNTESTED.img
-            out/vendor-a16-shutter-photo-gate-video6-UNTESTED.report.json
+            out/vendor-a16-sim-reference-video6-UNTESTED.img
+            out/vendor-a16-sim-reference-video6-UNTESTED.report.json
