@@ -26,7 +26,6 @@ MODEM_OPTIONS = (
 KERNEL_POLICY = "CONFIG_CPU_FREQ_DEFAULT_GOV_ENERGYSTEP=y"
 EXPECTED_CAMERA = "work/a16-shutter-lag-photo-fast-feature-gate"
 TEXT_REFERENCE_SHA = {
-    "etc/init/init.vendor.rilcommon.rc": "c61001ec4a485b436c99fb2d55786aabd92d6fc9f5e4b1b9beff458eb31be610",
     "etc/init/vendor.sem.rilchip.rc": "f3e6eb2e5330a3ba5e1a650ca6fc39b0b9ba25b9843743b7da8f15632a83380f",
     "etc/vintf/manifest/vendor.samsung.hardware.radio_manifest_2_33.xml": "f7d0dfced1b52feb24202d9d8ce1e179dfd67f4c57d42081f57171da03922f2f",
     "etc/vintf/manifest/vendor.samsung.hardware.sehradio_manifest_2_33.xml": "ad87982c72367cea3f368a023db52ef9a0b7da512d2b9689db8e3ccd89987afe",
@@ -51,11 +50,21 @@ def main():
         propname = key.split("=", 1)[0] + "="
         if any(row.startswith(propname) and row != key for row in props):
             errors.append("Vendor property conflicting values: " + propname[:-1])
-    init = (ROOT / "vendor/etc/init/init.vendor.rilcommon.rc").read_text()
-    if "exec_start network_config" not in init:
-        errors.append("Samsung NetworkConfig boot hook missing")
-    if "setprop ro.telephony.default_network ${ro.vendor.radio.default_network}" in init:
-        warnings.append("Owner-reference late ro.* setprop may be rejected by Android16 property service; no guarantee of runtime benefit")
+    # Camera/Video6 baseline uses the Android16-safe RIL init rather than the
+    # user's original Test7 init (which had a late immutable ro.* setprop).
+    # Check the *exact* Git blob, preventing any unexpected RIL-init changes.
+    init_path = ROOT / "vendor/etc/init/init.vendor.rilcommon.rc"
+    init_bytes = init_path.read_bytes()
+    init_blob_sha = hashlib.sha1(
+        ("blob " + str(len(init_bytes)) + "\\0").encode() + init_bytes
+    ).hexdigest()
+    if init_blob_sha != "206f7250bc11680242256360049e0ab09c8e5986":
+        errors.append("Android16 SIM2 LTE A/B RIL-init blob differs from approved Camera Video6 source")
+    init = init_bytes.decode("utf-8")
+    if init.count("exec_start network_config") != 1 or init.count("exec_start sim_config") != 1:
+        errors.append("Samsung NetworkConfig/SimConfig init hooks changed")
+    if "setprop ro.telephony.default_network" in init:
+        errors.append("Late immutable ro.telephony.default_network rewrite reintroduced")
 
     for rel, digest in TEXT_REFERENCE_SHA.items():
         file = ROOT / "vendor" / rel
@@ -74,7 +83,9 @@ def main():
     if not {"@1.6::IRadio/slot1", "@1.6::IRadio/slot2"}.issubset(fq):
         errors.append("Two HIDL IRadio services not declared")
     result = {
-        "pair_id": "ALICE-S8P-A16-R16-SIMCAM-20261023",
+        "pair_id": "ALICE-S8P-A16-R16-SIM2LTE-AB-20261023",
+        "ril_init_source_git_blob_sha": init_blob_sha,
+        "reference_radio_text_excluding_ab_init": len(TEXT_REFERENCE_SHA),
         "reference": "owner-supplied boot.img and vendor.new.dat.br",
         "kernel_modem_options_checked": len(MODEM_OPTIONS),
         "camera_video6_contract": "present" if not any("Video6" in e for e in errors) else "FAIL",
