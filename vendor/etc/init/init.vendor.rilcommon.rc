@@ -35,7 +35,4 @@ on fs
 
 on post-fs-data
     exec_start network_config
-    # Keep the vendor NetworkConfig initialization for both SIM slots.
-    # Android16 ro.telephony.default_network is an immutable IntegerList;
-    # it is declared as 9,9 in vendor/build.prop BEFORE property freeze.
-    # Do not overwrite it at post-fs-data with the single-SIM scalar 9.
+    setprop ro.telephony.default_network ${ro.vendor.radio.default_network}
