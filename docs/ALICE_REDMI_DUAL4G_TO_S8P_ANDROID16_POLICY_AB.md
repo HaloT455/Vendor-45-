@@ -78,6 +78,31 @@ adb -d shell dumpsys telephony.registry | grep 'mServiceState='
 
 Confirm two independent LTE access technologies from WWAN PS registration and both PS IN_SERVICE in one near-simultaneous capture before claiming true 4G+4G. When only one phone has LTE and the other UMTS or IWLAN, test data-SIM switch (keeping both SIMs installed) to distinguish single LTE owner handoff vs simultaneous LTE attach. A data-subscription switch may drop LTE on SIM1 and temporarily disrupt calls/data; never claim 4G+4G based on two Android allowed-RAT masks.
 
+## Definitive current owner's registration snapshot — 2026-10-24
+
+**Galaxy S8+ dream2lte Exynos8895, both SIMs physically installed, Android 16/V12R5T:** the user captured `dumpsys telephony.registry` and parsed `NetworkRegistrationInfo`, showing:
+
+| Domain | Viettel SIM1 | MobiFone SIM2 |
+| --- | --- | --- |
+| CS WWAN (mobile voice/circuit service) | HOME, RAT=LTE | HOME, RAT=UMTS |
+| PS WWAN (cellular packet data) | HOME, RAT=LTE | NOT_REG_OR_SEARCHING, RAT=UMTS |
+| PS WLAN (IWLAN transport) | UNKNOWN, IWLAN | HOME, IWLAN |
+| SIM state | LOADED | LOADED |
+
+Both registered operators appeared in `gsm.operator.alpha=Viettel,MobiFone`. **This definitively shows LTE+UMTS, not simultaneous LTE+LTE.** MobiFone's `HOME` on PS WLAN/IWLAN does NOT count as LTE radio registration on PS WWAN. MobiFone can make normal CS voice calls on UMTS; mobile PS registration is currently missing.
+
+**Relevant historical manufacturer evidence:** Samsung's Galaxy S8/S8+ launch specifies `4G + 3G Hybrid Slot for Dual SIM` ([Samsung Singapore](https://www.samsung.com/sg/news/local/samsung-announces-availability-of-galaxy-s8-s8plus-and-galaxy-tab-s3-in-singapore/)); Samsung community support said the other slot is automatically downgraded when LTE is selected on one slot ([Samsung Members](https://r2.community.samsung.com/t5/Galaxy-S/How-can-i-get-those-sim-4G-network/m-p/160777/highlight/true)). This is supporting evidence for a **device/modem limitation**, not an independently verified modem datasheet proving dual LTE physically impossible in every CP build.
+
+**Safest discriminating A/B, no flash, both SIMs installed:**
+1. Save this initial snapshot `LTE,UMTS`. Leave Viettel LTE working.
+2. Through Settings > Connections > SIM manager, set the *mobile-data SIM* to MobiFone SIM2; expect momentary data interruption.
+3. Read *both* `CS WWAN` and `PS WWAN` RATs and registration states again.
+4. If `UMTS,LTE` with SIM2 PS WWAN HOME, LTE owner handoff is possible but simultaneous dual LTE remains unproven. Restore Viettel data SIM if preferred.
+5. If `LTE,UMTS` while MobiFone is the confirmed default data slot, radio-stack handoff or policy could be defective; gather `setPreferredDataModem` and RadioConfig/RAF log events before changing any HAL.
+6. If `UMTS,UMTS`, both lost LTE ownership: restore Viettel and inspect SIM2 LTE attach. **No automatic CP/EFS writes, no Qualcomm modem transplant, and no blanket 4G+4G claim.**
+
+`mMaxActiveDataSubscriptions=2` in PhoneCapability and allowing LTE for both slots in USER policy are framework state, neither is proof of simultaneous independent LTE registration.
+
 ## Host safety constraints
 
 For S8+ Exynos 8895, 4G+4G requires two independently observed LTE PS registrations at the same time; neither two HIDL IRadio names nor `9,9` satisfies this criterion. Never use Redmi Qualcomm firmware/binaries on Samsung. Do not overwrite Test7 proprietary RIL ELF, Samsung modem firmware, CP, EFS or IMS profiles without verified rollback and hardware evidence.
