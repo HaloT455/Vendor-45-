@@ -383,3 +383,46 @@ The actual DEX has `Resources.getSystem` method reference, but DOES NOT contain 
 Produced owner-facing **offline-only audit bundle** with (a) exact DEX checksum/offset metadata, (b) source-only candidate Smali method guarded by dream2lte + default-off property, (c) explicit no-flash status and recovery prerequisites. The original JAR on the phone was not touched, and **no flash-ready replacement telephony-common.jar** was fabricated. The draft Smali candidate has not been assembled/disassembled or tested on hardware, so it is not a deployable patch.
 
 Even a successfully assembled corrected `RIL.makeStaticRadioCapability` would only help when that fallback method is actually invoked, and would not prove 4G+4G on Exynos8895.
+
+
+## 2026-10-25 real Smali 3.0.10 roundtrip: disassembly PASS, API36 unsupported; select 29 for original DEX039
+
+The user ran \`ALICE_S8P_RAF0_OFFLINE_ROUNDTRIP.sh\` on a Linux host. Verified:
+- Original \`telephony-common.jar\` passed SHA256 \`8e58d49ad355df0e69af9a459edd138fdcf23c6462059b058ba394173c3769e1\`.
+- Both v3.0.10 fat JAR tool binaries downloaded and passed official SHA256.
+- \`baksmali ... --api 36\` **succeeded** and disassembled the actual RIL fallback method.
+- Exact real Smali method:
+\`\`\`smali
+.method greylist-max-r makeStaticRadioCapability()Lcom/android/internal/telephony/RadioCapability;
+    .registers 8
+    new-instance v0, Lcom/android/internal/telephony/RadioCapability;
+    iget-object v1, p0, Lcom/android/internal/telephony/RIL;->mPhoneId:Ljava/lang/Integer;
+    invoke-virtual {v1}, Ljava/lang/Integer;->intValue()I
+    move-result v1
+    const-string v5, ""
+    const/4 v6, 0x1
+    const/4 v2, 0x0
+    const/4 v3, 0x0
+    const/4 v4, 0x0
+    invoke-direct/range {v0 .. v6}, Lcom/android/internal/telephony/RadioCapability;-><init>(IIIILjava/lang/String;I)V
+    # ... logs "Faking ... using " + v4; return v0
+.end method
+\`\`\`
+This independently verifies \`v4=0\` is passed to the fourth \`RadioCapability\` constructor parameter, the cached RAF bit mask.
+
+**Real failed step:** \`java -jar smali-3.0.10-fat-release.jar assemble --api 36 ...\` threw:
+\`\`\`text
+java.lang.IllegalArgumentException: dexVersion must be within [0, 999]
+  at com.android.tools.smali.dexlib2.dexbacked.raw.HeaderItem.getMagicForDexVersion
+\`\`\`
+Root cause checked in \`google/smali\` tag \`3.0.10\`:
+\`VersionMap.mapApiToDexVersion(36)\` returns \`NO_VERSION=-1\` (supports at most API35); creating DEX header from -1 throws. This is **a tool-version mapping error, not a ROM/framework failure**. The real uploaded \`classes.dex\` header is **\`dex\\n039\\0\`**, i.e. DEX 039, matching Smali \`--api 29\`. Use \`--api 29\` for **both** disassemble and assemble in a reproducible offline roundtrip, and assert output DEX header stays 039. \`--api 35\` would write DEX 041 and alter the source's format.
+
+Local diagnostic:
+\`\`\`bash
+sed -i 's/--api 36/--api 29/g' ~/Downloads/ALICE_S8P_RAF0_OFFLINE_ROUNDTRIP.sh
+bash ~/Downloads/ALICE_S8P_RAF0_OFFLINE_ROUNDTRIP.sh
+\`\`\`
+A V3 script generated in the conversation additionally validates original and output DEX039 headers. **No actual roundtrip success reported yet**; offline DEX checksum pass would show internal structural consistency only, NOT verification by on-device ART or safe replacement of the BOOTCLASSPATH JAR.
+
+Source mapping: https://github.com/google/smali/blob/3.0.10/dexlib2/src/main/java/com/android/tools/smali/dexlib2/VersionMap.java . Never flash compiled DEX into phone at this point.
