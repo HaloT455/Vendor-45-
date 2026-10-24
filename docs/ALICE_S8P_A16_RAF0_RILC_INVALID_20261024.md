@@ -550,3 +550,36 @@ The earlier \`STOP: ZIP entry metadata changed: META-INF/MANIFEST.MF\` was from 
 **Critical gating concerns before any installation:** candidate only enables its RAF fallback if \`ro.product.vendor.device=dream2lte\` AND \`persist.vendor.alice.s8p_raf0_resource_fallback=true\`, which defaults FALSE. A vendor property requires registered property contexts and appropriate SELinux access; setting a property on an unpatched ROM does nothing. Replacing \`/system/framework/telephony-common.jar\` changes Android BOOTCLASSPATH and may bootloop, regardless of DEX checksum/ZIP CRC PASS. ART verification, ROM signing/cached dexopt and a tested offline rollback/recovery remain UNVERIFIED. A non-flash read-only preflight was added as \`tools/android16/alice_raf0_device_preflight_readonly.sh\` to capture original on-device framework hash, bootclasspath presence, version, SELinux and property contexts; it must not alter data/SIM/camera/root/CP/EFS.
 
 Dual LTE still UNPROVEN; both phones assigned resource-derived RAF=64508 may still result in equal max/min RAF and the same ProxyController no-op, even if the fallback patch can prevent the \`unknown RAF 0\` early return. Do not promise dual 4G.
+
+
+## 2026-10-25 real device read-only preflight: pre-installation NO-GO
+
+Owner executed \`bash alice_raf0_device_preflight_readonly.sh\` on ThinkPad X270 against connected **physical** S8+; complete with \`READ ONLY, NO DEVICE CHANGES\`.
+\`\`\`text
+ADB: device
+ro.product.vendor.device=dream2lte
+ro.product.device=r0s
+ro.build.display.id=BP2A.250605.031.A3.S901BXXSNGZD7
+ro.build.version.release=16
+ro.boot.verifiedbootstate=green
+uname -r=4.4.302-Alice-V12R5T-MGLRU-KSU32590-Enf+
+/system/framework/telephony-common.jar 6525408 bytes
+on-device JAR SHA256=8e58d49ad355df0e69af9a459edd138fdcf23c6462059b058ba394173c3769e1
+host original JAR SHA256 matches exactly
+BOOTCLASSPATH includes /system/framework/telephony-common.jar
+SELinux=Enforcing
+persist.vendor.alice.s8p_raf0_resource_fallback= [UNSET]
+SDK=36
+dalvik.vm.usejit=true
+\`\`\`
+
+\`property_contexts\` scan found generic \`persist.vendor.\` mapping to \`vendor_default_prop\` in Android system and numerous other prefixed mappings, but **no exact registered \`persist.vendor.alice.s8p_raf0_resource_fallback\` rule was demonstrated**. Generic mapping is NOT proof Telephony has read/write permissions in SELinux enforcing mode; and an absent property means the trial's \`SystemProperties.getBoolean(..., false)\` returns **false**, leaving old zero-RAF fallback even IF the patched DEX were installed.
+
+Status gates:
+- PASS: source checksum, structural diff of 3628 Smali classes, reconstructed patched DEX checksum, original non-DEX archive data preservation, on-device original framework hash.
+- FAIL/NOT VERIFIED: ART runtime verification of patched BOOTCLASSPATH code, rollout and tested full offline recovery from nonboot, SELinux property-context registration and accessibility, real modem GET_RADIO_CAPABILITY restoration, LTE on MobiFone, dual 4G simultaneously.
+- **NO-GO for installing candidate, KernelSU early-boot mount, direct overwrite of /system/framework, fastboot/Heimdall flash, or setting persistent vendor properties on this production phone.** Preserve working boot V12R5T, vendor, camera/video, Viettel LTE baseline.
+
+The original trial targets \`RIL.makeStaticRadioCapability()\` exactly. Even if RAF0 fallback becomes nonzero when explicitly enabled, both slots could receive the **same** parsed RAF, leaving \`ProxyController.getMaxRafSupported()==getMinRafSupported()\` and therefore no actual hardware RF handoff; the owner's Xiaomi-like simultaneous LTE goal is still speculative and NOT solved. Do not call it a dual 4G ROM fix.
+
+For deployment planning, require a ROM-integrated compatible framework build plus correct SELinux property policy (or a reviewed, safe alternative gating scheme), a user-tested independent custom recovery path with on-device restoration of original JAR/system partition, and device-side ART boot safety tests before exposing any flashable build. Merely reading \`ro.boot.verifiedbootstate=green\` does not prove any of these.
