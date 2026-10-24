@@ -56,6 +56,28 @@ Fixed `tools/alice_lte_slot1_policy_trial.py`: parses AOSP symbolic RAT output i
 
 **NEXT PROBLEM IS NOT USER RAT POLICY:** Viettel SIM1 remains `mVoiceRegState=1(OUT_OF_SERVICE),mDataRegState=1(OUT_OF_SERVICE)`; MobiFone SIM2 shows voice IN_SERVICE, data OUT_OF_SERVICE. `gsm.network.type=UMTS,UMTS`, `gsm.operator.alpha=,MobiFone`. Both physical SIMs can stay installed. Gather slot mapping and sanitized radio reject/RadioCapability events before changing modem or system image. Do not repeatedly reset `ro.telephony.default_network=9,9`.
 
+## Redmi Note 5 Pro (whyred) REAL rollout / compatibility evidence
+
+- Snapdragon 636 was initially shipped with only one 4G-ready slot for users in some configurations. The India Android 8.1 MIUI 9.5.14.0.OEIMIFA rollout (June 26 2018) explicitly included **Dual 4G optimization**. Prior 9.5.11 offered a Dual 4G VoLTE switch but FoneArena testers found inconsistent actual simultaneous registrations. [Release report](https://www.fonearena.com/blog/253594/xiaomi-redmi-note-5-pro-android-oreo-dual-4g-volte-india-download.html)
+- A 2019 OxygenOS 9.0.2 port to the same Snapdragon 636 **did** register Jio and Airtel VoLTE concurrently in a hands-on test, but the port had occasional call drops and SIM detection failure. [Independent hands-on test](https://www.fonearena.com/blog/273515/xiaomi-redmi-note-5-pro-android-pie-oxygenos-9-0-port.html). This establishes capability **on Qualcomm Snapdragon 636**, not Exynos8895.
+- A Qualcomm modem image, IMS carrier configuration or QMI/RIL backend **cannot** be transplanted onto Samsung's SS310AP. Android framework masks and RadioCapability checks are *conceptual* lessons; modem hardware/vendor support is essential.
+- A newer public whyred custom ROM device tree exists ([example](https://github.com/Atom-X-Devs/android_device_xiaomi_whyred)), but searching its properties.mk and framework overlay did **not** identify a standalone, portable Dual 4G toggle/patch. Do not invent one.
+
+## Subsequent live S8+ owner status on 2026-10-24
+
+The owner later reported Viettel SIM1 LTE working with both SIMs inserted. Subsequent `gsm.network.type=LTE,IWLAN`, `gsm.operator.alpha=Viettel,`; `defaultDataSubId=1` with **unknown subscription→slot mapping**. Now owner reports MobiFone SIM2 has regained carrier/network visibility. **Do not equate SIM2 MobiFone registration with SIM2 LTE**, and do not assume `IWLAN` is 3G. Preserve the working boot/vendor, camera and SIM1 LTE; no modem/CP/EFS writes or blind RadioCapability firmware patch.
+
+The earlier `GET_RADIO_CAPABILITY` invalid native RIL response and RAF=0 fallback remain important compatibility defects, but later **SIM1 LTE working shows that RAF=0 is not in itself sufficient evidence of a permanent blocker to all LTE service.** We need a simultaneous snapshot of PS/CS WWAN registration for *both* phones before claiming dual LTE or selecting repair target.
+
+**Next verification, both SIMs left inserted:**
+
+```bash
+adb -d shell 'getprop gsm.sim.state; getprop gsm.operator.alpha; getprop gsm.network.type; dumpsys isub | grep defaultDataSubId'
+adb -d shell dumpsys telephony.registry | grep 'mServiceState='
+```
+
+Confirm two independent LTE access technologies from WWAN PS registration and both PS IN_SERVICE in one near-simultaneous capture before claiming true 4G+4G. When only one phone has LTE and the other UMTS or IWLAN, test data-SIM switch (keeping both SIMs installed) to distinguish single LTE owner handoff vs simultaneous LTE attach. A data-subscription switch may drop LTE on SIM1 and temporarily disrupt calls/data; never claim 4G+4G based on two Android allowed-RAT masks.
+
 ## Host safety constraints
 
 For S8+ Exynos 8895, 4G+4G requires two independently observed LTE PS registrations at the same time; neither two HIDL IRadio names nor `9,9` satisfies this criterion. Never use Redmi Qualcomm firmware/binaries on Samsung. Do not overwrite Test7 proprietary RIL ELF, Samsung modem firmware, CP, EFS or IMS profiles without verified rollback and hardware evidence.
