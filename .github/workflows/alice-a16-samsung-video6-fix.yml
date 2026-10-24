@@ -25,6 +25,7 @@ on:
       - "tools/test_android16_phone_raf0_trial_patch.py"
       - "tools/test_android16_ril_raf0_resource_fallback.py"
       - "tools/android16/alice_pull_telephony_framework.py"
+      - "tools/android16/alice_decompile_telephony_raf.py"
       - "patches/android16/**"
       - "docs/ALICE_SIM_REFERENCE_20261023.md"
       - "vendor/etc/alice-test7/camera-feature.xml"
@@ -72,6 +73,7 @@ jobs:
           python3 tools/test_android16_phone_raf0_trial_patch.py
           python3 tools/test_android16_ril_raf0_resource_fallback.py
           python3 tools/android16/alice_pull_telephony_framework.py --selftest
+          python3 tools/android16/alice_decompile_telephony_raf.py --selftest
           # Only known Camera A/B flags + restored reference RIL init may differ.
           changed="$(git diff --name-only refs/remotes/origin/work/a16-camera-fast-metadata-face-iris-audit HEAD -- vendor metadata)"
           expected="vendor/etc/alice-test7/camera-feature.xml"
