@@ -611,3 +611,18 @@ AOSP ART docs explicitly say dexpreopt artifacts depend on unchanged BOOTCLASSPA
 **Status:** Owner's offline 3628-class Smali diff, candidate DEX039 checksum, and 786-untouched-ZIP-member repack are PASS, but ART/SELinux/boot + independent recovery are NOT TESTED, and the opt-in \`persist.vendor.alice.s8p_raf0_resource_fallback\` property remains absent. This RAF0 code may fix Android framework's early abort but cannot manufacture Exynos8895 4G+4G modem support. **NO FLASH-READY artifact; no install recommended.**
 
 Safe next read-only measurements: current actual SYSTEM/RECOVERY block sizes, free host storage, and whether a verifiable exact full-system-image backup can be created externally (planning only). Never touch RADIO, CP, EFS or USERDATA partitions.
+
+
+## 2026-10-25 S8+ partition size and host capacity preflight
+
+Owner's physical Galaxy S8+ read-only \`blockdev\` and ThinkPad \`df -h\`:
+\`\`\`text
+SYSTEM blockdev --getsize64 /dev/block/by-name/SYSTEM = 6815744000 bytes = 6500 MiB ≈ 6.35 GiB
+RECOVERY blockdev --getsize64 /dev/block/by-name/RECOVERY = 48234496 bytes = 46 MiB
+RECOVERY symlink canonical path = /dev/block/sda8
+/data/dalvik-cache exists (drwxrwx--x root/root)
+ThinkPad /dev/sda2 root filesystem: Size 117G, Used 90G, Avail 21G (82% used)
+\`\`\`
+Conclusion: enough host space for **ONE raw 6,815,744,000-byte SYSTEM backup** to ThinkPad. Do not simultaneously retain multiple full copies without rechecking space. Device root SYSTEM EROFS remains read-only. The correct safety step (only when owner elects) is an ADB \`exec-out\` read-only pull of exact SYSTEM raw device onto the host, validate exact 6815744000-byte length and SHA256 against a separate on-device read, and retain the original backed up without rewriting or modifying it. Reading SYS via dd to stdout is fundamentally different from flashing; no \`of=/dev/block/*\` command should be used. A verified backup alone is NOT a validated restoration route; RECOVERY 46 MiB block size does not confirm TWRP boot, decrypted storage support or restoring bootclasspath/EROFS image on failed Android boot. Recovery/rollback gate still NO-GO.
+
+Do not touch RADIO=/dev/block/sda10, EFS=/dev/block/sda3, CP/EFS or USERDATA. The OFF-by-default RAF0 candidate is still strictly offline.
