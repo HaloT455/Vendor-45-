@@ -485,3 +485,29 @@ Next safety gate: perform a strict, offline, class-by-class Smali diff of the OR
 A standalone script \`ALICE_S8P_RAF0_STRICT_DEX_DIFF.py\` has been generated in the conversation artifact sandbox with known owner-file hashes and a passing *fixture selftest*, but has **not yet been run against the owner's actual disassembled Smali trees**. No results from that full comparison should be claimed until owner runs it and supplies output.
 
 Safeguard: the Smali experiment's \`persist.vendor.alice.s8p_raf0_resource_fallback\` guard defaults to false. Enabling this property on an unmodified ROM has no effect; on modified bootclasspath ROM may require proper SELinux property_contexts handling. It is also possible for the proprietary Exynos8895 modem/RIL not to support dual independent LTE even when Java framework RAF=64508. Preserve original telephony-common.jar SHA \`8e58d49ad355df0e69af9a459edd138fdcf23c6462059b058ba394173c3769e1\` and kernel 4.4.302-Alice-V12R5T.
+
+
+## 2026-10-25 strict offline Smali diff PASS: 3628 classes; only one method changed
+
+**User performed full Android16 Galaxy S8+ offline validation on ThinkPad:**
+\`\`\`text
+PASS: original telephony-common.jar SHA-256
+  8e58d49ad355df0e69af9a459edd138fdcf23c6462059b058ba394173c3769e1
+PASS: unmodified DEX039 roundtrip via baksmali/smali 3.0.10 --api 29
+PASS: RAF0 candidate DEX039 assemble/disassemble and SHA1/Adler32
+  SHA-256 c1a641b18d92a28dd2c3f25a7930febc91e97d2199fb434e42726360b042a0e4
+  6,117,972 bytes
+PASS: ALICE_S8P_RAF0_STRICT_DEX_DIFF_V2.py --selftest
+PASS: 3628 Smali classes compared; only RIL.makeStaticRadioCapability changed
+PASS: original/candidate DEX class, field and prototype counts preserved
+REPORT: ~/Downloads/ALICE_ROM_RADIO_DUMP/raf0-offline/ALICE_RAF0_STRICT_DIFF_REPORT.json
+NOT FLASHABLE: ART verification, property_contexts and rollback untested
+\`\`\`
+
+An earlier strict-diff V1 test failed with a bare \`STOP:\` because it checked *the textual name* of a Smali exception-handler label \`:alice_raf_catch\`, which the assembler is free to canonicalize. In V2, validation correctly checks the actual RuntimeException catch table + move-exception, so the strict diff passed. This was a verifier false negative, not a broken DEX patch.
+
+**Current status:** bytecode construction and same-method-only semantic Smali comparison passed. **Not an installed patch, not proof of ART verification or radio success.** The experimental framework needs correct first-boot ART verification, property_contexts for feature gate \`persist.vendor.alice.s8p_raf0_resource_fallback\` (default OFF), dependable recovery/rollback, and an independent test of system/non-system resource parsing. Attempting to copy a candidate into \`/system/framework/telephony-common.jar\` without those gates is unsafe: bootclasspath and preopt constraints can bootloop or disable telephony.
+
+For offline ZIP metadata testing, a host-only script \`ALICE_S8P_RAF0_OFFLINE_JAR_AUDIT.py\` was supplied to user, requiring exact original SHA, trial DEX SHA, 3628-class PASS report, and reproducing original 787 ZIP entries while preserving all 786 non-DEX entry bytes. It deliberately produces \`.NOT-FOR-INSTALL.zip\`, not a flashable artifact. This script is only selftested on a small ZIP fixture: **no owner's full archive run yet**.
+
+Objective remains repair Android16's hardcoded \`RIL.makeStaticRadioCapability()\` RAF=0 fallback, which in itself does not imply modem can do concurrent 4G+4G. Keep working kernel 4.4.302-Alice-V12R5T and camera/video.
