@@ -188,3 +188,22 @@ adb -d shell 'logcat -b radio -b main -d -t 8000' |
 **If mobile Internet is broken**, restore known-good \`subId=1\` with the already-built helper, then verify \`defaultDataSubId=1,activeDataSubId=1\` and Viettel WWAN PS LTE; no reboot, CP/EFS write or flash is warranted.
 
 Do not claim Xiaomi-style concurrent 4G+4G solved: no device-level evidence. Keep camera/video and V12R5T.
+
+
+## Latest post-handoff status: data subscription returned to Viettel (2026-10-24)
+
+Subsequent `--snapshot sim2` user output:
+```text
+slot_to_sub_id: slot0=1, slot1=2
+default_data_sub_id=1
+active_data_sub_id=1
+phone0: CS WWAN HOME LTE; PS WWAN HOME LTE
+phone1: CS WWAN HOME UMTS; PS WWAN NOT_REG_OR_SEARCHING UMTS
+```
+Earlier, directly after `ISub.setDefaultDataSubId(2)`, BOTH defaultDataSubId and activeDataSubId equaled 2. Therefore DDS **did change and subsequently returned to 1**, but the timeline does not show whether owner manually ran `set 1`, rebooted phone, changed SIM manager, or OEM Telephony reverted DDS. **Never assert automatic rollback without tracing the transition.**
+
+The user's recent `logcat -b radio -b main -d -t 10000 | grep -iE ...` output contained only two `GET_BARRING_INFO REQUEST_NOT_SUPPORTED` entries at 21:58:46. This query is not equivalent to GET/SET_RADIO_CAPABILITY and is not evidence of a failed RAF negotiation at that time. Per AOSP RIL.java, getBarringInfo can legitimately respond REQUEST_NOT_SUPPORTED on radio HAL older than 1.5: https://android.googlesource.com/platform/frameworks/opt/telephony/+/57644f0fddb60c6acdb7d6c43564b0b4f330fe43/src/java/com/android/internal/telephony/RIL.java .
+
+**Next experiment (explicit opt-in, no modem/EFS writes)**: if owner wishes, capture baseline then rerun the previously proven rooted `set 2` and immediately sample `dumpsys isub` (default and active), plus sanitized WWAN PS registration every 2–3s for 30–45s, and capture `SubscriptionManagerService` / `MultiSimSettingController` / `ProxyController` / `PhoneSwitcher` / `RILJ` radio log since just before the switch. This determines whether the apparent return to subId1 is a genuine automatic fallback and whether radio capability changes ever succeed, instead of inferring causation from truncated/stale logs.
+
+The device's stable working current state is Viettel PS LTE + MobiFone CS UMTS; official Android16 data handoff logic uses `remapRafIfApplicable` and `ProxyController.setRadioCapability(rafs)`: https://android.googlesource.com/platform/frameworks/opt/telephony/+/android16-release/src/java/com/android/internal/telephony/subscription/SubscriptionManagerService.java .
