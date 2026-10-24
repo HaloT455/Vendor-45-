@@ -169,3 +169,34 @@ python3 tools/test_android16_phone_raf0_trial_patch.py
 **Release gate:** The repository DOES NOT include the current phone's matching framework source, so the Phone.java patch has NOT been applied to the owner's phone system image and has NOT been compiled into flashable \`boot.img\`, \`vendor.img\`, or a full ROM. Neither kernel driver nor Samsung proprietary RIL has been changed. Preserve the working V12R5T boot and camera/video. Independently confirm an actual DDS switch \`defaultDataSubId=2\` and \`activeDataSubId=2\` before claiming handoff was repaired.
 
 The authoritative Redmi Note5 Pro MIUI Dual4G release relied on Snapdragon-supported modem firmware; this source patch is a **limited Android Telephony compatibility experiment**, not a Qualcomm firmware transplant.
+
+
+## 2026-10-24 confirmed parser vs cached RAF and both-phone RIL fallback experiment
+
+**Real phone output, direct root app_process (NOT simulation)**:
+\`\`\`text
+ALICE_CACHED_RAF: phoneId=0 decimal=0 hex=0x0 LTE_BIT_4096=false
+ALICE_CACHED_RAF: phoneId=1 decimal=0 hex=0x0 LTE_BIT_4096=false
+ALICE_RAF_PARSE_CANONICAL: decimal=64508 hex=0xfbfc LTE_BIT_4096=true
+ALICE_RAF_RUNTIME_RESOURCE: GSM|CDMA|EVDO|WCDMA|LTE
+ALICE_RAF_PARSE_RUNTIME: decimal=64508 hex=0xfbfc LTE_BIT_4096=true
+\`\`\`
+
+The parser and the new app_process \`Resources.getSystem()\` are correct. Both cached \`Phone.mRadioCapability.raf=0\` remain incorrect/inconsistent with **Viettel registered PS WWAN LTE**. This is a Telephony RIL capability reporting/caching compatibility defect. It is **not a claim that S8+ can run LTE simultaneously on both SIMs**.
+
+For DDS handoff, the 22:10 A/B test proved \`setDefaultDataSubId(2)\` and \`activeDataSubId=2\` succeed, PhoneSwitcher says \`DDS change success, PhoneId : 1\`, while phone1 MobiFone registers **HSUPA**, not LTE. \`ProxyController: setRadioCapability: Already in requested configuration\` is consistent with both requested and cached RAF values being 0.
+
+**New candidate source patch**: \`patches/android16/0002-RIL-S8Plus-both-phones-RAF0-resource-fallback-OPTIN.patch\` changes the **AOSP \`RIL.makeStaticRadioCapability()\`** fallback for both slots, not Phone1 alone. When the original \`mContext.getResources().getString(config_radio_access_family)\` parses to RAF_UNKNOWN, this S8+ opt-in trial reads **the actual same framework resource from \`Resources.getSystem()\`**, which the owner's app_process just confirmed parses to 64508. Only uses a nonzero parsed result, and does not hardcode / spoof a raw 4G+4G per-slot modem response.
+
+Guards: requires \`ro.product.vendor.device=dream2lte\`, explicit \`persist.vendor.alice.s8p_raf0_resource_fallback=true\`, both disabled on other models and **off by default**. Does not edit CP/EFS, boot, vendor binaries, RIL HAL response ABI, or force a \`RadioCapability.set\` transaction. This will not fix malformed **native** \`responseRadioCapability()\` payload; it addresses only the AOSP static-fallback path when invoked and when its context resource is zero. It is not guaranteed to get LTE on SIM2 or give two LTE stacks concurrently.
+
+CI offline selftest: \`python3 tools/test_android16_ril_raf0_resource_fallback.py\` runs GNU patch against an AOSP-shaped RIL.java fixture and asserts the device gate, opt-in default FALSE, no hardcoded network mode or CP/EFS writes. **CI PASS not yet verified; real ROM compilation and on-device impact NOT performed.**
+
+**Critical source integration restriction**: \`Vendor-45-\` and \`dream2lte-45\` do NOT supply the *running* Android16 \`frameworks/opt/telephony\` \`RIL.java\`, so this patch cannot be embedded into just vendor.img or boot.img. A user must identify and build their ROM's own matching Telephony framework; only then can a guarded ROM test build, backed up with a tested rollback, be considered. Installing a source patch in the vendor tree does NOT alter the RIL on the user's phone. Do not tell the user to flash the source patch or claim dual 4G success.
+
+Avoid enabling this workaround by \`setprop\` on a stock binary where no patch exists. Merely setting the property has no effect; introducing unregistered persist.vendor properties may violate SELinux property_contexts.
+
+Reference AOSP source:
+- \`RIL.makeStaticRadioCapability\`: https://android.googlesource.com/platform/frameworks/opt/telephony/+/refs/heads/main/src/java/com/android/internal/telephony/RIL.java
+- \`Phone.getRadioAccessFamily\`: https://android.googlesource.com/platform/frameworks/opt/telephony/+/refs/heads/main/src/java/com/android/internal/telephony/Phone.java
+- \`ProxyController.setRadioCapability\`: https://android.googlesource.com/platform/frameworks/opt/telephony/+/refs/heads/main/src/java/com/android/internal/telephony/ProxyController.java
