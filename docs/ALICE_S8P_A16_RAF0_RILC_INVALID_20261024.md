@@ -456,3 +456,32 @@ This proves \`v4\` (the 4th \`I\` constructor argument) is initialized to **zero
 Current follow-up is an **offline-only experimental Smali candidate**, guarded by \`ro.product.vendor.device=dream2lte\` and default-OFF \`persist.vendor.alice.s8p_raf0_resource_fallback\`; it reads \`Resources.getSystem().getIdentifier("config_radio_access_family", "string", "android")\` and \`android.telephony.RadioAccessFamily.rafTypeFromString\`, only when explicitly enabled. The local script \`ALICE_S8P_RAF0_SMALI_OFFLINE_TRIAL.sh\` produces \`classes.raf0-OFFLINE-DO-NOT-FLASH.dex\` under \`~/Downloads/ALICE_ROM_RADIO_DUMP/raf0-offline\`, and round-trip re-disassembles the candidate to check the intended method survived assembly. It **does not build a flashable JAR or write to the phone**; no ART install test, SELinux property context validation or tested rollback. Do not instruct flashing this DEX to the S8+.
 
 The fallback RAF \`64508 (0xFBFC)\` from valid system resource expresses software-configured RAT *options*, not modem support for concurrent 4G+4G. Even if patched framework caches nonzero RAF, the Exynos8895/Samsung RIL might only support one LTE registration at a time, and \`ProxyController.getMax/MinRafSupported\` may see equal masks instead of correct per-stack caps.
+
+
+## 2026-10-25 first complete ROM DEX RAF0 offline Smali assembly PASS
+
+Owner ran \`ALICE_S8P_RAF0_SMALI_OFFLINE_TRIAL.sh\` on ThinkPad and supplied actual output:
+\`\`\`text
+/home/halo-pmf/Downloads/ALICE_ROM_RADIO_DUMP/telephony-common.jar: OK
+PASS: source-only change limited to exact RIL.makeStaticRadioCapability()
+PATCH DIFF: /home/halo-pmf/Downloads/ALICE_ROM_RADIO_DUMP/raf0-trial-smali/ALICE_RAF0_METHOD_DIFF.txt
+===== COMPILE RAF0 TRIAL DEX OFFLINE =====
+===== DEX HEADER / CHECKSUM / STRINGS =====
+PASS: offline trial DEX checksum, DEX039 and patch string markers
+SHA256: c1a641b18d92a28dd2c3f25a7930febc91e97d2199fb434e42726360b042a0e4
+DEX bytes: 6117972
+===== RE-DISASSEMBLE FOR VERIFY =====
+PASS: patch references survived assemble / disassemble
+WARNING: this does NOT verify Android ART bootclasspath startup or radio stability
+===== OFFLINE COMPLETE - NO DEVICE CHANGES =====
+\`\`\`
+
+The base \`classes.dex\` was 6,117,656 bytes and the candidate is 6,117,972 bytes; +316 bytes is plausible for one method's new device/property/resource conditional path and added string constants. **A signed, bootclasspath-correct, phone-tested flashable JAR does not yet exist.** The changed DEX SHA-256 simply identifies the offline experiment; it is not a stability/safety attestation. Real UART/radio RIL still unmodified on the phone.
+
+The proven initial full unmodified roundtrip occurred after selecting \`--api 29\` (DEX 039); Smali 3.0.10's VersionMap does NOT map Android API 36 and \`--api 36\` fails with \`dexVersion must be within [0,999]\`. DEX 039 encoding is a *file-format* decision, not downgrading the Android ROM.
+
+Next safety gate: perform a strict, offline, class-by-class Smali diff of the ORIGINAL Baksmali dump \`$HOME/Downloads/ALICE_ROM_RADIO_DUMP/raf0-offline/smali\` vs roundtripped patched Smali \`.../raf0-offline/raf0-reverify\`, allowing only the \`RIL.makeStaticRadioCapability()\` body and rejecting class membership or unrelated method changes. Also verify original and trial checksum, class/field/prototype ID counts. If any unrelated differences, STOP rather than flashing. A check of boot-time ART verifier, property access and recovery is still required even after strict structural diff.
+
+A standalone script \`ALICE_S8P_RAF0_STRICT_DEX_DIFF.py\` has been generated in the conversation artifact sandbox with known owner-file hashes and a passing *fixture selftest*, but has **not yet been run against the owner's actual disassembled Smali trees**. No results from that full comparison should be claimed until owner runs it and supplies output.
+
+Safeguard: the Smali experiment's \`persist.vendor.alice.s8p_raf0_resource_fallback\` guard defaults to false. Enabling this property on an unmodified ROM has no effect; on modified bootclasspath ROM may require proper SELinux property_contexts handling. It is also possible for the proprietary Exynos8895 modem/RIL not to support dual independent LTE even when Java framework RAF=64508. Preserve original telephony-common.jar SHA \`8e58d49ad355df0e69af9a459edd138fdcf23c6462059b058ba394173c3769e1\` and kernel 4.4.302-Alice-V12R5T.
