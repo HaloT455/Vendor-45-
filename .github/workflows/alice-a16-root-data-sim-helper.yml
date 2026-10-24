@@ -1,0 +1,40 @@
+name: ALICE Android16 Root Data SIM ISub Bridge (UNTESTED ON DEVICE)
+
+on:
+  push:
+    branches: [work/a16-sim2-lte-ab-20261023]
+    paths:
+      - "tools/android16/**"
+      - ".github/workflows/alice-a16-root-data-sim-helper.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile-isub-bridge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Show SDK availability
+        run: |
+          test -n "$ANDROID_HOME"
+          find "$ANDROID_HOME/build-tools" -maxdepth 2 -type f -name d8 -print
+      - name: Compile guarded ISub helper to DEX (no ADB)
+        run: |
+          bash tools/android16/build_alice_data_sim_switch.sh "$GITHUB_WORKSPACE/alice-data-sim-switch.jar"
+          unzip -l alice-data-sim-switch.jar | grep 'classes.dex'
+          sha256sum alice-data-sim-switch.jar > alice-data-sim-switch.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ALICE-S8Plus-Android16-ISub-RootHelper-UNTESTED
+          path: |
+            alice-data-sim-switch.jar
+            alice-data-sim-switch.sha256
+          if-no-files-found: error
+          retention-days: 7
