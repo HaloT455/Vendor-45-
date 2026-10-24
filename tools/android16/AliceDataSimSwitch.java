@@ -79,9 +79,49 @@ public final class AliceDataSimSwitch {
         System.out.println("ALICE_CACHED_RAF_READ_ONLY: no radio commands sent");
     }
 
+    /**
+     * Compare platform RAF parsing with the system Resources view.
+     * This new app_process runtime is NOT the Phone/Telephony process, so its
+     * resource view may differ from RIL's cached startup resource snapshot.
+     */
+    private static void printRuntimeRafParser() {
+        final String canonical = "GSM|CDMA|EVDO|WCDMA|LTE";
+        try {
+            Class<?> rafClass = Class.forName("android.telephony.RadioAccessFamily");
+            Method fromString = rafClass.getMethod("rafTypeFromString", String.class);
+            int parsed = ((Number) fromString.invoke(null, canonical)).intValue();
+            System.out.println("ALICE_RAF_PARSE_CANONICAL: decimal=" + parsed
+                    + " hex=0x" + Integer.toHexString(parsed)
+                    + " LTE_BIT_4096=" + ((parsed & 4096) != 0));
+            Class<?> resources = Class.forName("android.content.res.Resources");
+            Object instance = resources.getMethod("getSystem").invoke(null);
+            int id = ((Number) resources.getMethod("getIdentifier",
+                    String.class, String.class, String.class)
+                    .invoke(instance, "config_radio_access_family", "string", "android"))
+                    .intValue();
+            if (id == 0) {
+                System.out.println("ALICE_RAF_RUNTIME_RESOURCE: not visible in app_process");
+            } else {
+                String value = (String) resources.getMethod("getString", int.class)
+                        .invoke(instance, id);
+                int runtimeParsed = ((Number) fromString.invoke(null, value)).intValue();
+                System.out.println("ALICE_RAF_RUNTIME_RESOURCE: "
+                        + value.replaceAll("[^A-Za-z0-9_|]", "?"));
+                System.out.println("ALICE_RAF_PARSE_RUNTIME: decimal=" + runtimeParsed
+                        + " hex=0x" + Integer.toHexString(runtimeParsed)
+                        + " LTE_BIT_4096=" + ((runtimeParsed & 4096) != 0));
+            }
+        } catch (Throwable problem) {
+            System.out.println("ALICE_RAF_RUNTIME_UNAVAILABLE: "
+                    + problem.getClass().getSimpleName()
+                    + " (could be OEM hidden API or resource visibility)");
+        }
+        System.out.println("ALICE_RAF_RUNTIME_READ_ONLY: no modem commands");
+    }
+
     private static void usage() {
-        System.err.println("USAGE: AliceDataSimSwitch status | raf | set 2 | set 1");
-        System.err.println("  status / raf = read only; set 2 = MobiFone, set 1 = Viettel.");
+        System.err.println("USAGE: AliceDataSimSwitch status | raf | raf-local | set 2 | set 1");
+        System.err.println("  status / raf / raf-local = read only; set 2 = MobiFone, set 1 = Viettel.");
         System.err.println("  Requires Android root WITH MODIFY_PHONE_STATE access.");
     }
 
@@ -93,9 +133,10 @@ public final class AliceDataSimSwitch {
         }
         boolean status = args.length == 1 && args[0].equals("status");
         boolean raf = args.length == 1 && args[0].equals("raf");
+        boolean local = args.length == 1 && args[0].equals("raf-local");
         boolean setting = args.length == 2 && args[0].equals("set") &&
                 (args[1].equals("1") || args[1].equals("2"));
-        if (!status && !raf && !setting) {
+        if (!status && !raf && !local && !setting) {
             usage();
             System.exit(2);
             return;
@@ -103,6 +144,10 @@ public final class AliceDataSimSwitch {
 
         if (raf) {
             printCurrentRaf();
+            return;
+        }
+        if (local) {
+            printRuntimeRafParser();
             return;
         }
 
