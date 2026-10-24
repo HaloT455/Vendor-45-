@@ -161,14 +161,20 @@ def dual_lte_check(snapshot: dict) -> dict:
     both_loaded = len(sim_states) >= 2 and all(x.strip().upper() in
                        {"LOADED", "READY"} for x in sim_states[:2])
     both_lte = (slots.get(0) == "LTE_REPORTED" and slots.get(1) == "LTE_REPORTED")
+    ps_verified = snapshot.get("wwan_registration", [])
+    independent = (len(ps_verified) == 2 and
+                   all(x.get("ps_lte_registered") is True for x in ps_verified)
+                   and both_loaded)
     return {
         "candidate_both_lte_rat": bool(both_lte and both_loaded),
         "slot0_reported_rat": slots.get(0, "UNKNOWN"),
         "slot1_reported_rat": slots.get(1, "UNKNOWN"),
         "both_sim_states_ready": both_loaded,
-        "independent_wwan_ps_home_lte_verified": False,
-        "simultaneous_4g_service_proven": False,
-        "result": ("BOTH_LTE_RAT_REPORTED_NEEDS_WWAN_CONFIRMATION"
+        "independent_wwan_ps_home_lte_verified": independent,
+        "simultaneous_4g_service_proven": independent,
+        "result": ("BOTH_WWAN_PS_LTE_REGISTERED"
+                   if independent else
+                   "BOTH_LTE_RAT_REPORTED_NEEDS_WWAN_CONFIRMATION"
                    if both_lte and both_loaded else
                    "BOTH_LTE_NOT_OBSERVED_OR_INCONCLUSIVE"),
         "requires": "Two independently verified WWAN PS HOME LTE registrations on phoneId0 and phoneId1",
@@ -244,6 +250,14 @@ def selftest() -> None:
            [{"phone_id": 0, "rat_class": "LTE_REPORTED"},
             {"phone_id": 1, "rat_class": "LTE_REPORTED"}]}
     assert dual_lte_check(two)["candidate_both_lte_rat"]
+    assert not dual_lte_check(two)["simultaneous_4g_service_proven"]
+    two["wwan_registration"] = [
+        {"phone_id": 0, "ps_lte_registered": True},
+        {"phone_id": 1, "ps_lte_registered": True}
+    ]
+    assert dual_lte_check(two)["independent_wwan_ps_home_lte_verified"]
+    assert dual_lte_check(two)["simultaneous_4g_service_proven"]
+    two["wwan_registration"][1]["ps_lte_registered"] = False
     assert not dual_lte_check(two)["simultaneous_4g_service_proven"]
     two["slots"][1]["rat_class"] = "3G_REPORTED"
     assert not dual_lte_check(two)["candidate_both_lte_rat"]
