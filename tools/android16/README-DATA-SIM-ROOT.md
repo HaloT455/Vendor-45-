@@ -49,3 +49,23 @@ adb -d shell dumpsys isub | grep -E 'defaultDataSubId=|activeDataSubId='
 \`\`\`
 
 These source files do not modify modem firmware, EFS, boot, vendor, either SIM's enable status, or APN. Permission/SELinux restrictions may block root process despite uid=0; a denial is diagnostic, not a reason to disable SELinux. The \`Phone.java\` RAF0 source compatibility trial is independently default OFF and not installed into the ROM.
+
+
+## Missing d8 on ThinkPad — standalone Google R8 workflow (2026-10-24)
+
+Observed on the user's Linux laptop: \`ERROR: Android SDK Build-Tools d8 not found\`. Therefore \`alice-data-sim-switch.jar\` was **never generated**, \`adb push\` failed \`cannot stat\`, and subsequent rooted \`app_process\` attempts returned \`Aborted\`. Android remained \`defaultDataSubId=1\` and \`activeDataSubId=1\`; no SIM data switch was observed. Never run the tool before confirming DEX JAR exists and \`adb push\` succeeds.
+
+The Linux build script was updated in vendor commit \`6562b26b60a7727b63a93c06e981f27a17a356a2\` to accept Google's **standalone** D8 implementation from the Maven artifact \`com.android.tools:r8:8.8.34\`, without Android SDK:
+
+\`\`\`bash
+cd "$HOME/Downloads/ALICE_DDS"
+curl -fL --retry 3 "https://dl.google.com/dl/android/maven2/com/android/tools/r8/8.8.34/r8-8.8.34.jar" -o r8-8.8.34.jar
+curl -fL --retry 3 "https://raw.githubusercontent.com/HaloT455/Vendor-45-/6562b26b60a7727b63a93c06e981f27a17a356a2/tools/android16/build_alice_data_sim_switch.sh" -o tools/android16/build_alice_data_sim_switch.sh
+R8_JAR="$PWD/r8-8.8.34.jar" bash tools/android16/build_alice_data_sim_switch.sh "$PWD/alice-data-sim-switch.jar"
+test -s alice-data-sim-switch.jar
+jar tf alice-data-sim-switch.jar | grep -x classes.dex
+\`\`\`
+
+Direct Maven repository is Google-hosted; do not fetch dex compilers from random APK mirrors. A jar with \`classes.dex\` is only evidence of compilation, **not proof this OEM ROM permits the API**. Test \`status\` before \`set 2\`. The user had also run \`set 1\` and got Aborted, which should not be interpreted as successful restore; actual \`defaultDataSubId=1\` is the only verified selection.
+
+If \`curl\` fails, try the GitHub Actions workflow artifact after confirming that Actions job is green, or install Android SDK Build-Tools and use d8 normally.
