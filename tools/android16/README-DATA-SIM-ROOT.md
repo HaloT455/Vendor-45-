@@ -69,3 +69,35 @@ jar tf alice-data-sim-switch.jar | grep -x classes.dex
 Direct Maven repository is Google-hosted; do not fetch dex compilers from random APK mirrors. A jar with \`classes.dex\` is only evidence of compilation, **not proof this OEM ROM permits the API**. Test \`status\` before \`set 2\`. The user had also run \`set 1\` and got Aborted, which should not be interpreted as successful restore; actual \`defaultDataSubId=1\` is the only verified selection.
 
 If \`curl\` fails, try the GitHub Actions workflow artifact after confirming that Actions job is green, or install Android SDK Build-Tools and use d8 normally.
+
+
+## S8+ actual-device runtime validation, 2026-10-24
+
+Owner ran the **standalone Google R8 8.8.34** compilation workflow from the above instructions on a ThinkPad Linux host. Build output:
+\`\`\`text
+PASS: Android DEX jar built locally; no device changes:
+ /home/halo-pmf/Downloads/ALICE_DDS/alice-data-sim-switch.jar
+SHA256 6c607373788af0b54f2bdfbe23763516f0ab6b877722c111747280241e58d998
+3136 bytes; contains classes.dex
+adb push -> /data/local/tmp/alice-data-sim-switch.jar SUCCESS
+\`\`\`
+Owner then ran read-only:
+\`\`\`text
+su -c "CLASSPATH=/data/local/tmp/alice-data-sim-switch.jar app_process /system/bin AliceDataSimSwitch status"
+ALICE_DATA_SIM: Viettel subId=1 phoneId=0; MobiFone subId=2 phoneId=1; defaultDataSubId=1
+ALICE_DATA_SIM_STATUS_ONLY: no modem/settings modifications
+\`\`\`
+**Confirmed:** JDK/R8 build, DEX load, Android16 root process, reflection + Binder reads of \`ISub.getPhoneId()\` and \`ISub.getDefaultDataSubId()\`, exact carrier subId/phoneId mapping. Java warnings about \`--release 8\` are harmless deprecation messages, not build failures.
+
+**NOT YET CONFIRMED:** write permission or runtime \`ISub.setDefaultDataSubId(2)\` success, subsequent \`activeDataSubId=2\`, MobiFone LTE PS WWAN registration, simultaneous Dual LTE, or \`Phone.java\` trial patch effectiveness. Do not present a successful read-only status as confirmation of any of those.
+
+Next explicit owner-run command, only with his agreement (could briefly disrupt mobile data):
+\`\`\`bash
+adb -d shell 'su -c "CLASSPATH=/data/local/tmp/alice-data-sim-switch.jar app_process /system/bin AliceDataSimSwitch set 2"'
+adb -d shell dumpsys isub | grep -E 'defaultDataSubId=|activeDataSubId='
+python3 "$HOME/Downloads/alice_sim2_lte_handoff_probe.py" --snapshot sim2 --output "$HOME/Downloads/sim2-after-handoff.json"
+\`\`\`
+If blocked, record exact error, maintain working defaultDataSubId1. Rollback if needed:
+\`\`\`bash
+adb -d shell 'su -c "CLASSPATH=/data/local/tmp/alice-data-sim-switch.jar app_process /system/bin AliceDataSimSwitch set 1"'
+\`\`\`
