@@ -426,3 +426,33 @@ bash ~/Downloads/ALICE_S8P_RAF0_OFFLINE_ROUNDTRIP.sh
 A V3 script generated in the conversation additionally validates original and output DEX039 headers. **No actual roundtrip success reported yet**; offline DEX checksum pass would show internal structural consistency only, NOT verification by on-device ART or safe replacement of the BOOTCLASSPATH JAR.
 
 Source mapping: https://github.com/google/smali/blob/3.0.10/dexlib2/src/main/java/com/android/tools/smali/dexlib2/VersionMap.java . Never flash compiled DEX into phone at this point.
+
+
+## S8+ confirmed full Smali/DEX roundtrip with API 29 (2026-10-25)
+
+Owner's ThinkPad log confirmed: \`telephony-common.jar\` expected SHA256 \`8e58d49ad355df0e69af9a459edd138fdcf23c6462059b058ba394173c3769e1\` PASS; official smali/baksmali v3.0.10 downloads and SHA-256 checks PASS; \`baksmali disassemble --api 29\` successfully extracted the exact OEM \`RIL.makeStaticRadioCapability()\` method, and \`smali assemble --api 29\` successfully round-tripped the **ENTIRE UNMODIFIED ROM DEX**.
+
+Owner's outcome:
+\`\`\`text
+PASS: offline roundtrip DEX integrity 6117656 bytes
+ROUNDTRIP SHA256: 4acc0950271732f8ef1d1730896963617ac4bc4da165d5010e101105344c2d42
+COMPLETE: NO ON-DEVICE CHANGES
+\`\`\`
+
+The original \`classes.dex\` uses DEX header \`039\`; official smali v3.0.10 \`VersionMap.mapApiToDexVersion(36)\` returns NO_VERSION(-1), so \`--api 36\` causes \`dexVersion must be within [0,999]\`. Using **\`--api 29\`** for DEX039 roundtrip fixes the tool version-map error; it **does not downgrade Android16** and is not a proof of ART bootclasspath compatibility.
+
+The exact original SMALI demonstrates:
+\`\`\`smali
+.method greylist-max-r makeStaticRadioCapability()Lcom/android/internal/telephony/RadioCapability;
+    .registers 8
+    ...
+    const/4 v4, 0x0
+    invoke-direct/range {v0 .. v6}, Lcom/android/internal/telephony/RadioCapability;-><init>(IIIILjava/lang/String;I)V
+    ...
+.end method
+\`\`\`
+This proves \`v4\` (the 4th \`I\` constructor argument) is initialized to **zero** in the ROM's RIL fallback. No patched DEX or repaired phone behavior has yet been validated.
+
+Current follow-up is an **offline-only experimental Smali candidate**, guarded by \`ro.product.vendor.device=dream2lte\` and default-OFF \`persist.vendor.alice.s8p_raf0_resource_fallback\`; it reads \`Resources.getSystem().getIdentifier("config_radio_access_family", "string", "android")\` and \`android.telephony.RadioAccessFamily.rafTypeFromString\`, only when explicitly enabled. The local script \`ALICE_S8P_RAF0_SMALI_OFFLINE_TRIAL.sh\` produces \`classes.raf0-OFFLINE-DO-NOT-FLASH.dex\` under \`~/Downloads/ALICE_ROM_RADIO_DUMP/raf0-offline\`, and round-trip re-disassembles the candidate to check the intended method survived assembly. It **does not build a flashable JAR or write to the phone**; no ART install test, SELinux property context validation or tested rollback. Do not instruct flashing this DEX to the S8+.
+
+The fallback RAF \`64508 (0xFBFC)\` from valid system resource expresses software-configured RAT *options*, not modem support for concurrent 4G+4G. Even if patched framework caches nonzero RAF, the Exynos8895/Samsung RIL might only support one LTE registration at a time, and \`ProxyController.getMax/MinRafSupported\` may see equal masks instead of correct per-stack caps.
