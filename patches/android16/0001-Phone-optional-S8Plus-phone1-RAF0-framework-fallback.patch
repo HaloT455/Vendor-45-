@@ -1,0 +1,27 @@
+diff --git a/src/java/com/android/internal/telephony/Phone.java b/src/java/com/android/internal/telephony/Phone.java
+--- a/src/java/com/android/internal/telephony/Phone.java
++++ b/src/java/com/android/internal/telephony/Phone.java
+@@
+     protected void updateAllowedNetworkTypes(Message response) {
+         int modemRaf = getRadioAccessFamily();
++        // ALICE dream2lte Android16 trial only. Legacy Samsung RIL can return
++        // an INVALID_RESPONSE/RAF=0 for GET_RADIO_CAPABILITY on phoneId 1,
++        // causing AOSP to abort before sending allowed network types.
++        //
++        // This restores the *framework-declared* RAT mask ONLY if an explicitly
++        // opt-in property is enabled and ONLY for physical slot 1. It does NOT
++        // add LTE RF capability, change the modem, or bypass the carrier's RAT
++        // policies; do not enable in production without device-level tests.
++        if (modemRaf == RadioAccessFamily.RAF_UNKNOWN
++                && getPhoneId() == 1
++                && android.os.SystemProperties.getBoolean(
++                        "persist.vendor.alice.s8p_raf0_fallback", false)) {
++            final String declaredRaf = mContext.getResources().getString(
++                    com.android.internal.R.string.config_radio_access_family);
++            final int parsedRaf = RadioAccessFamily.rafTypeFromString(declaredRaf);
++            if (parsedRaf != RadioAccessFamily.RAF_UNKNOWN) {
++                Rlog.w(mLogTag, "ALICE_RAF0_TRIAL_PHONE1: framework-declared RAF fallback");
++                modemRaf = parsedRaf;
++            }
++        }
+         if (modemRaf == RadioAccessFamily.RAF_UNKNOWN) {
