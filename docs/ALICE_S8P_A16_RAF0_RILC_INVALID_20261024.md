@@ -316,3 +316,46 @@ If JADX executable has no +x bit: run \`chmod +x ~/Downloads/jadx-1.5.6/bin/jadx
 - \`ProxyController.setRadioCapability\`: why both RAF=0 caused \`Already in requested configuration\` at DDS switch.
 
 **Patch-quality gates:** The current \`0002-RIL...\` is a **source-only AOSP-shaped experimental trial**, not yet verified against these actual OEM Decompiled method bodies. Do NOT build or flash a system JAR until the exact method signature and control flow are checked, a compatible ROM build environment is available, and a recovery/rollback mechanism is tested. Preserve working S8+ Viettel LTE, MobiFone HSUPA/UMTS, camera/video, boot V12R5T, proprietary modem.
+
+
+## 2026-10-24 REAL JADX RIL MAKESTATIC HARD-CODED ZERO CONFIRMED
+
+Owner decompiled the **exact** \`/system/framework/telephony-common.jar\` (6525408 bytes,
+SHA256 \`8e58d49ad355df0e69af9a459edd138fdcf23c6462059b058ba394173c3769e1\`)
+with JADX 1.5.6 and shared \`ALICE_RAF_METHOD_EXCERPTS.txt\`.
+
+Real Samsung/OneUI8 \`com.android.internal.telephony.RIL.java\`, decompiled line 2656:
+\`\`\`java
+RadioCapability makeStaticRadioCapability() {
+    RadioCapability radioCapability = new RadioCapability(this.mPhoneId.intValue(), 0, 0, 0, PhoneConfigurationManager.SSSS, 1);
+    riljLog("Faking RIL_REQUEST_GET_RADIO_CAPABILITY response using 0");
+    return radioCapability;
+}
+\`\`\`
+
+**This is decisive:** the ROM's Java fallback explicitly hardcodes RAF=0 for **both** phone IDs, rather than parsing \`config_radio_access_family\`. It is *not* merely a missing runtime resource. When this fallback is used after invalid Samsung native GET_RADIO_CAPABILITY responses, cached per-phone RAF=0 is consistent with owner-verified \`ITelephony.getRadioAccessFamily(0)=0\` and \`getRadioAccessFamily(1)=0\`. The owner independently verified \`Resources.getSystem().getString(config_radio_access_family)=GSM|CDMA|EVDO|WCDMA|LTE\` parses to 64508 (0xFBFC) in a separate app_process. Hence fixing only config RRO or USER allowed LTE bits is ineffective; those values are already valid.
+
+Real decompiled \`Phone.java\`:
+\`\`\`java
+public int getRadioAccessFamily() {
+    RadioCapability radioCapability = getRadioCapability();
+    if (radioCapability == null) return 0;
+    return radioCapability.getRadioAccessFamily();
+}
+protected void updateAllowedNetworkTypes(Message message) {
+    int radioAccessFamily = getRadioAccessFamily();
+    if (radioAccessFamily == 0) {
+       Rlog.d(this.mLogTag, "setPreferredNetworkType: Abort, unknown RAF: " + radioAccessFamily);
+       // replies GENERIC_FAILURE and returns early
+       ...
+    }
+    // otherwise filters allowed network types against modem RAF
+}
+\`\`\`
+Real \`ProxyController.getMaxRafSupported()\`/min returns 0 when both phones RAF=0, and \`ProxyController.setRadioCapability()\` returns true without transaction when requested RAFs already match those current cached 0 values. This matches 22:10 live log \`setRadioCapability: Already in requested configuration, nothing to do.\`
+
+**Updated experiment matching REAL decompiled method**: \`patches/android16/0003-S8Plus-OneUI8-RIL-REAL-METHOD-RAF0-FALLBACK-OPTIN.patch\`. Replaces the hardcoded \`new RadioCapability(..., 0, ...)\` *fallback* method with guarded \`Resources.getSystem()\` parsing and nonzero RAF only for \`ro.product.vendor.device=dream2lte\` **and** \`persist.vendor.alice.s8p_raf0_resource_fallback=true\`. Default FALSE for safety. \`tools/test_s8p_real_rom_ril_raf0_patch.py\` validates against the exact five-line decompiled method fixture, not the outdated open-source RIL snippet. The two older experimental patches 0001 (Phone1 only) and 0002 (AOSP RIL method, not matching Samsung method) are SUPERSEDED as solutions for this particular port; do not apply either directly to S8+ system.
+
+**Strict constraints**: The JADX Java text is **not** compilable ROM source simply because it was decompiled. The new file is a *source-level proposal*, not an in-place patch to \`classes.dex\`. No verified smali/baksmali surgical DEX editing, no replacement JAR, no system/framework flashing. Because this is a BOOTCLASSPATH JAR, installing an untested rebuild can bootloop or disrupt radio; before any real-world installation need exact method-level smali from the same original SHA, same signing/ART format expectations, offline DEX reassembly and verification, **and tested recovery/rollback**. On a patched ROM, on-device property_contexts/SELinux handling for the optional persist.vendor property must also be defined if opt-in mode is enabled. Direct \`setprop\` alone cannot change stock bytecode and should not be used as a purported fix.
+
+**Not a Dual 4G guarantee:** Giving both Phones fallback RAF=64508 may make both identical; the ProxyController's *maximum/minimum* still cannot infer the modem's actual stronger/weaker radio-stack capability from identical values, and a real \`setRadioCapability\` exchange may remain unsupported by proprietary Exynos8895 RIL. This repairs a proven **framework fallback bug** only if compiled/applied, not OEM RF hardware limitations. Manufacturer original S8+ Dual SIM spec was 4G+3G.
