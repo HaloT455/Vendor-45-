@@ -1,0 +1,28 @@
+diff --git a/src/java/com/android/internal/telephony/RIL.java b/src/java/com/android/internal/telephony/RIL.java
+--- a/src/java/com/android/internal/telephony/RIL.java
++++ b/src/java/com/android/internal/telephony/RIL.java
+@@ -1,4 +1,24 @@
+         if (!TextUtils.isEmpty(rafString)) {
+             raf = RadioAccessFamily.rafTypeFromString(rafString);
+         }
++        // ALICE S8+ Exynos8895 diagnostic trial only; OFF by default.
++        // Legacy Samsung RIL has returned invalid GET_RADIO_CAPABILITY and
++        // the context-local fallback sometimes resolves to RAF_UNKNOWN(0).
++        // Re-read the *existing system resource* (never hardcode LTE or NV)
++        // only on dream2lte. This is not a dual-LTE hardware unlock.
++        if (raf == RadioAccessFamily.RAF_UNKNOWN
++                && "dream2lte".equals(
++                        SystemProperties.get("ro.product.vendor.device", ""))
++                && SystemProperties.getBoolean(
++                        "persist.vendor.alice.s8p_raf0_resource_fallback", false)) {
++            final String systemRafString = android.content.res.Resources.getSystem()
++                    .getString(com.android.internal.R.string.config_radio_access_family);
++            final int parsedSystemRaf =
++                    RadioAccessFamily.rafTypeFromString(systemRafString);
++            if (parsedSystemRaf != RadioAccessFamily.RAF_UNKNOWN) {
++                riljLog("ALICE_RAF0_RESOURCE_FALLBACK: phoneId=" + mPhoneId
++                        + " parsedRAF=" + parsedSystemRaf);
++                raf = parsedSystemRaf;
++            }
++        }
+         RadioCapability rc = new RadioCapability(mPhoneId.intValue(), 0, 0, raf,
