@@ -114,3 +114,24 @@ AOSP references:
 - https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/telephony/java/android/telephony/RadioAccessFamily.java
 - https://android.googlesource.com/platform/frameworks/opt/telephony/+/refs/heads/main/src/java/com/android/internal/telephony/RIL.java
 - https://android.googlesource.com/platform/hardware/ril/+/0a0f220a983b866017c00dc5211c7bf8aa32a852/libril/ril_service.cpp
+
+
+## Follow-up after live ROM RAF resource check (2026-10-24)
+
+Owner's output:
+
+```text
+FRAMEWORK: GSM|CDMA|EVDO|WCDMA|LTE
+dumpsys phone | grep -iE 'mRadioCapability|mRadioAccessFamily|RadioCapability'  => NO MATCH
+logcat -b radio -d -t 5000 ... =>
+  17:47:12 Phone-1 setPreferredNetworkType: Abort, unknown RAF: 0
+  17:47:14 Phone-1 setPreferredNetworkType: Abort, unknown RAF: 0
+```
+
+Interpretation:
+- These are **replayed buffer lines**: absence of a new `Invalid response` in the short selected window does **not** establish that Samsung RIL has become compliant.
+- An empty grep over `dumpsys phone` provides **no positive evidence** that `Phone.mRadioCapability` has a valid nonzero mask. AOSP `Phone.getRadioAccessFamily()` reads the cached `mRadioCapability` and the `updateAllowedNetworkTypes` path immediately aborts when this mask is 0. Reference: https://android.googlesource.com/platform/frameworks/opt/telephony/+/refs/heads/main/src/java/com/android/internal/telephony/Phone.java
+- An effective valid `cmd overlay lookup` value rules out the **live resource overlay content** as the fault, but does **not** prove what was loaded at the time the earlier `RIL.makeStaticRadioCapability()` constructed the `RAF=0` fallback.
+- **No build/flash patch yet:** A safe framework-side compatibility fix would need the actual Android 16 system/framework sources and correct overlay/package context; the vendor repository alone cannot directly patch the Java `Phone` object. Guessing a replacement RAF capability that exceeds actual Exynos8895 support is unacceptable.
+- The current device is proven LTE(PS HOME) on Viettel slot0 and UMTS(CS HOME, PS NOT_REG_OR_SEARCHING) on MobiFone slot1. The data subscription mapping remains `subId=1` Viettel, `subId=2` MobiFone, `defaultDataSubId=1`, `activeDataSubId=1`. No successful switch to MobiFone default data has been observed. Therefore, no claim of handoff failure or Dual 4G on the actual device.
+- Do not override RadioCapability or change RAF mask to force both LTE. Maintain working 4G Viettel, MobiFone 3G, camera/video.
