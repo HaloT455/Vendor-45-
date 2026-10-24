@@ -583,3 +583,31 @@ Status gates:
 The original trial targets \`RIL.makeStaticRadioCapability()\` exactly. Even if RAF0 fallback becomes nonzero when explicitly enabled, both slots could receive the **same** parsed RAF, leaving \`ProxyController.getMaxRafSupported()==getMinRafSupported()\` and therefore no actual hardware RF handoff; the owner's Xiaomi-like simultaneous LTE goal is still speculative and NOT solved. Do not call it a dual 4G ROM fix.
 
 For deployment planning, require a ROM-integrated compatible framework build plus correct SELinux property policy (or a reviewed, safe alternative gating scheme), a user-tested independent custom recovery path with on-device restoration of original JAR/system partition, and device-side ART boot safety tests before exposing any flashable build. Merely reading \`ro.boot.verifiedbootstate=green\` does not prove any of these.
+
+
+## Real S8+ partition topology 2026-10-25: A-only-looking UFS, SYSTEM/VENDOR EROFS immutable
+
+Owner's live ADB read-only diagnostics:
+\`\`\`text
+getprop ro.build.ab_update => empty
+getprop ro.boot.slot_suffix => empty
+/dev/block/by-name/BOOT -> /dev/block/sda7
+/dev/block/by-name/RECOVERY -> /dev/block/sda8
+/dev/block/by-name/SYSTEM -> /dev/block/sda17
+/dev/block/by-name/VENDOR -> /dev/block/sda19
+/dev/block/by-name/RADIO -> /dev/block/sda10
+/dev/block/by-name/EFS -> /dev/block/sda3
+/dev/block/by-name/USERDATA -> /dev/block/sda28
+/dev/block/platform/11120000.ufs/by-name/SYSTEM / erofs ro,seclabel,relatime,user_xattr,acl,cache_strategy=readaround 0 0
+/dev/block/platform/11120000.ufs/by-name/VENDOR /vendor erofs ro,seclabel,relatime,user_xattr,acl,cache_strategy=readaround 0 0
+sha256sum /system/framework/telephony-common.jar:
+8e58d49ad355df0e69af9a459edd138fdcf23c6462059b058ba394173c3769e1
+\`\`\`
+
+**Conclusion:** This device resembles an A-only traditional UFS partition layout (no _a/_b suffix exposed), but empty properties alone are not definitive evidence of the OTA mechanism. SYSTEM is mounted EROFS as **root /**, VENDOR EROFS as /vendor; kernel EROFS is intrinsically read-only. An in-place \`mount -o remount,rw\` of EROFS does not enable writes. Directly overwriting \`/system/framework/telephony-common.jar\` with \`adb push\`, \`cp\`, remount, \`dd\`, or changing flash block devices is **not a safe implementation option**. EROFS requires reproducible entire image build / read-safe overlay, and proof any such overlay is available BEFORE bootclasspath class initialization. Presence of a separate RECOVERY partition does not establish that TWRP is installed, boots independently, can access encrypted partitions, or can restore the original SYSTEM EROFS image if Zygote fails. Do not infer validated recovery from the partition symlink.
+
+AOSP ART docs explicitly say dexpreopt artifacts depend on unchanged BOOTCLASSPATH: https://source.android.com/docs/core/runtime/configure ; changing \`telephony-common.jar\` without compatible ROM build and dexpreopt plan can break boot. Kernel EROFS docs https://docs.kernel.org/filesystems/erofs.html describe immutable filesystem.
+
+**Status:** Owner's offline 3628-class Smali diff, candidate DEX039 checksum, and 786-untouched-ZIP-member repack are PASS, but ART/SELinux/boot + independent recovery are NOT TESTED, and the opt-in \`persist.vendor.alice.s8p_raf0_resource_fallback\` property remains absent. This RAF0 code may fix Android framework's early abort but cannot manufacture Exynos8895 4G+4G modem support. **NO FLASH-READY artifact; no install recommended.**
+
+Safe next read-only measurements: current actual SYSTEM/RECOVERY block sizes, free host storage, and whether a verifiable exact full-system-image backup can be created externally (planning only). Never touch RADIO, CP, EFS or USERDATA partitions.
