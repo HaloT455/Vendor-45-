@@ -103,6 +103,28 @@ Both registered operators appeared in `gsm.operator.alpha=Viettel,MobiFone`. **T
 
 `mMaxActiveDataSubscriptions=2` in PhoneCapability and allowing LTE for both slots in USER policy are framework state, neither is proof of simultaneous independent LTE registration.
 
+## 2026-10-24: Verified Xiaomi release vs S8+ actual modem limits
+
+**Verified whyred ROM:** official Xiaomi `V9.5.14.0.OEIMIFA` (June 2018, Android 8.1) lists `Optimized Dual 4G` in the changelog. Official firmware-tracker evidence: https://xmfirmwareupdater.com/miui/whyred/stable/V9.5.14.0.OEIMIFA/ . This confirms a firmware feature delivered on Qualcomm Snapdragon 636, but the proprietary patchset/changed modem NV/RF mechanisms are NOT disclosed by the changelog. Therefore do **not** invent a small transferable `build.prop` change or assert what baseband source Xiaomi patched.
+
+**Samsung manufacturer documented original design:** `Galaxy S8/S8+ (4G + 3G Hybrid Slot for Dual SIM)` in Samsung's official launch specifications: https://www.samsung.com/sg/news/local/samsung-announces-availability-of-galaxy-s8-s8plus-and-galaxy-tab-s3-in-singapore/ . This supports a strong **hardware/modem-or-product-policy limit** hypothesis. It is not proof that no hypothetical new CP firmware could ever support a second LTE standby path, but no validated Exynos8895 Dual LTE firmware is available here.
+
+**Current user's fixed evidence:**
+- slot0/Viettel `subId=1`, PS WWAN HOME LTE; voice HOME LTE.
+- slot1/MobiFone `subId=2`, CS WWAN HOME UMTS; PS WWAN NOT_REG_OR_SEARCHING UMTS; WLAN IWLAN is not LTE on cellular RF.
+- `defaultDataSubId=1`, `activeDataSubId=1` continue to point to Viettel; the user has **not produced an actual SIM2 DDS selection event**. `PhoneSwitcherForMultiSim` reports `mPreferredDataPhoneId=0,mPrimaryDataSubId=1,ddsSubId=1`.
+- Both `cmd phone get-allowed-network-types-for-users -s 0/1` contain LTE; `ro.telephony.default_network=9,9`; both physical SIMs loaded. **User masks and default props are already correct.**
+- Both native Samsung RIL slots previously logged `responseRadioCapability: Invalid response` and a static fallback `RAF=0`. Phone1 still logged `setPreferredNetworkType: Abort, unknown RAF: 0`. Live `cmd overlay lookup --user 0 android android:string/config_radio_access_family` is `GSM|CDMA|EVDO|WCDMA|LTE`: this is valid and does not justify replacing RRO blindly.
+
+**Android16 source call graph for a true user data SIM switch:** `SubscriptionManagerService.setDefaultDataSubId(2)` checks `MODIFY_PHONE_STATE`, updates `mDefaultDataSubId`, calls `remapRafIfApplicable()`, and notifies the MultiSim controller and PhoneSwitcher. Ref: https://android.googlesource.com/platform/frameworks/opt/telephony/+/android16-release/src/java/com/android/internal/telephony/subscription/SubscriptionManagerService.java . Opening Settings by ADB or writing global settings is NOT equivalent. Do **not** execute a guessed `service call isub N 2` where transaction IDs are version-dependent.
+
+**Working repair stages, strict gates:**
+1. Preserve working V12R5T boot, camera, original paired vendor, and dual voice service.
+2. Confirm one **actual** default/active DDS change from 1 to 2, then capture both WWAN PS/CS RATs and radio logs. If MobiFone LTE and Viettel UMTS, that proves LTE handoff but not 4G+4G.
+3. Independently investigate Samsung native RIL malformed `GET_RADIO_CAPABILITY` callback versus expected Android16 HIDL/legacy RIL payload size; use ABI evidence, not a fabricated RadioCapability mask. Fixing RAF0 may restore clean allowed-RAT updates but **does not guarantee two LTE stacks**.
+4. Never force LTE on both with a blind Phone.java framework bypass, modify modem CP/EFS/NV, or transplant Qualcomm `NON-HLOS.bin` into Exynos8895.
+5. Claim Dual 4G success only when **simultaneous** WWAN PS registrations on BOTH phone IDs are HOME/ROAMING LTE and calls/data are tested. Until then the proven state is LTE+UMTS.
+
 ## Host safety constraints
 
 For S8+ Exynos 8895, 4G+4G requires two independently observed LTE PS registrations at the same time; neither two HIDL IRadio names nor `9,9` satisfies this criterion. Never use Redmi Qualcomm firmware/binaries on Samsung. Do not overwrite Test7 proprietary RIL ELF, Samsung modem firmware, CP, EFS or IMS profiles without verified rollback and hardware evidence.
