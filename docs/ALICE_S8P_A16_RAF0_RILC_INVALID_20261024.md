@@ -529,3 +529,24 @@ The first \`ALICE_S8P_RAF0_OFFLINE_JAR_AUDIT.py\` incorrectly stopped at \`ZIP e
 A corrected **offline byte-preserving ZIP graft** was implemented and tested locally against the owner's exact original JAR. It replaces only the \`classes.dex\` stored payload, updates its local+central CRC and sizes, shifts subsequent central-directory local-header offsets, and updates the EOCD central-directory offset. It does **not** recompress the other 786 entries, thereby retaining the original 0x808 flags, data descriptors, and local-record bytes. Using the original DEX plus 316 dummy bytes (exact size delta for real trial DEX), it PASSed \`zipfile.testzip()\`, 786 byte-identical untouched local entry ranges and all metadata/flags checks. The corrected user's downloadable script is \`ALICE_S8P_RAF0_OFFLINE_JAR_AUDIT_V2.py\` from the ChatGPT conversation; **the owner has not yet tested it against the actual candidate DEX**.
 
 **Important:** offline ZIP CRC/structure checks do not validate system ART bootclasspath operation, SELinux property visibility/registration or tested recovery. No JAR has been installed on S8+ and **4G+4G remains unproven**. The candidate is explicitly named \`telephony-common.RAF0-TRIAL.NOT-FOR-INSTALL.zip\`. Do not flash.
+
+
+## 2026-10-25 REAL ThinkPad offline JAR audit V2 PASS (no device changes)
+
+Owner executed \`ALICE_S8P_RAF0_OFFLINE_JAR_AUDIT_V2.py --selftest\` and then the full audit **twice**, obtaining:
+\`\`\`text
+PASS: offline raw-ZIP graft / preserve-other-local-bytes fixture
+PASS: preserved exact compressed/local entry bytes for 786 non-DEX members
+PASS: original ZIP flag_bits and metadata preserved; ZIP CRC verifies
+PASS: SHA-pinned trial DEX and strict 3628-class structural diff
+AUDIT REPORT: /home/halo-pmf/Downloads/ALICE_ROM_RADIO_DUMP/raf0-offline/ALICE_JAR_OFFLINE_AUDIT_V2.json
+CANDIDATE (DO NOT FLASH): /home/halo-pmf/Downloads/ALICE_ROM_RADIO_DUMP/raf0-offline/telephony-common.RAF0-TRIAL.NOT-FOR-INSTALL.zip
+NOT ART VALIDATED, NOT READY FOR INSTALL OR FLASH
+\`\`\`
+The earlier \`STOP: ZIP entry metadata changed: META-INF/MANIFEST.MF\` was from V1; **V2 resolved it** by byte-preserving local ZIP records including original \`0x808\` flags. The owner confirmed the fixed algorithm works on the actual trial DEX, not only on a test fixture.
+
+**Verified stages completed on ThinkPad:** exact original JAR SHA256, DEX039 smali roundtrip, patched DEX SHA256 and integrity, read-back of patched RIL method, source-level 3628-class strict diff (only \`RIL.makeStaticRadioCapability\` changed), 787-member ZIP preserve-audit (786 non-DEX entries unchanged). These validations are independent of ART class loading; do NOT label the \`.zip\` flash-ready.
+
+**Critical gating concerns before any installation:** candidate only enables its RAF fallback if \`ro.product.vendor.device=dream2lte\` AND \`persist.vendor.alice.s8p_raf0_resource_fallback=true\`, which defaults FALSE. A vendor property requires registered property contexts and appropriate SELinux access; setting a property on an unpatched ROM does nothing. Replacing \`/system/framework/telephony-common.jar\` changes Android BOOTCLASSPATH and may bootloop, regardless of DEX checksum/ZIP CRC PASS. ART verification, ROM signing/cached dexopt and a tested offline rollback/recovery remain UNVERIFIED. A non-flash read-only preflight was added as \`tools/android16/alice_raf0_device_preflight_readonly.sh\` to capture original on-device framework hash, bootclasspath presence, version, SELinux and property contexts; it must not alter data/SIM/camera/root/CP/EFS.
+
+Dual LTE still UNPROVEN; both phones assigned resource-derived RAF=64508 may still result in equal max/min RAF and the same ProxyController no-op, even if the fallback patch can prevent the \`unknown RAF 0\` early return. Do not promise dual 4G.
