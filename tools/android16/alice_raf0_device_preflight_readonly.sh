@@ -24,7 +24,7 @@ echo "persist.vendor.alice.s8p_raf0_resource_fallback=$(getprop persist.vendor.a
 echo "===== AVAILABLE VENDOR PROPERTY CONTEXTS ====="
 for f in /vendor/etc/selinux/vendor_property_contexts /system/etc/selinux/plat_property_contexts /system_ext/etc/selinux/system_ext_property_contexts /product/etc/selinux/product_property_contexts /odm/etc/selinux/odm_property_contexts; do
     if [ -r "$f" ]; then
-        grep -n -E "(^|[[:space:]])(persist\\.vendor\\.alice\\.|persist\\.vendor\\.)" "$f" | head -12 || true
+        grep -n -E "persist[.]vendor([.]alice)?[.]" "$f" | head -12 || true
     fi
 done
 echo "===== BOOTCLASSPATH ART COMPILE MODE ====="
