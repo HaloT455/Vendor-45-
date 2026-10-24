@@ -207,3 +207,41 @@ The user's recent `logcat -b radio -b main -d -t 10000 | grep -iE ...` output co
 **Next experiment (explicit opt-in, no modem/EFS writes)**: if owner wishes, capture baseline then rerun the previously proven rooted `set 2` and immediately sample `dumpsys isub` (default and active), plus sanitized WWAN PS registration every 2–3s for 30–45s, and capture `SubscriptionManagerService` / `MultiSimSettingController` / `ProxyController` / `PhoneSwitcher` / `RILJ` radio log since just before the switch. This determines whether the apparent return to subId1 is a genuine automatic fallback and whether radio capability changes ever succeed, instead of inferring causation from truncated/stale logs.
 
 The device's stable working current state is Viettel PS LTE + MobiFone CS UMTS; official Android16 data handoff logic uses `remapRafIfApplicable` and `ProxyController.setRadioCapability(rafs)`: https://android.googlesource.com/platform/frameworks/opt/telephony/+/android16-release/src/java/com/android/internal/telephony/subscription/SubscriptionManagerService.java .
+
+
+## 2026-10-24 22:10 — live 30-second DDS2 transaction, successful HSUPA on phone1 (NOT LTE)
+
+Owner ran a 10-iteration ~30-sec probe after rooted \`ISub.setDefaultDataSubId(2)\` at **22:10**. Data subscription remained stable \`defaultDataSubId=2\`, \`activeDataSubId=2\` in ALL 10 samples: no automatic revert in this trial.
+
+Observed independent cellular PS registration:
+- 22:10:11 phone0 Viettel \`NOT_REG_OR_SEARCHING LTE\`, phone1 MobiFone \`NOT_REG_OR_SEARCHING UMTS\` (handoff in progress).
+- 22:10:21 phone0 \`NOT_REG_OR_SEARCHING LTE\`, phone1 \`HOME HSUPA\` (registered 3G mobile data).
+- 22:10:37 phone0 \`NOT_REG_OR_SEARCHING UMTS\`, phone1 \`HOME HSUPA\` (still 3G mobile data).
+
+Actual contemporaneous log:
+\`\`\`text
+22:10:07.358 SMSVC: Default data subId changed from 1 to 2
+22:10:07.367 ProxyController: setRadioCapability: Already in requested configuration, nothing to do.
+22:10:07.410 PhoneSwitcher: evaluating due to default data sub changed to 2 ... preferred data phoneId 0->1
+22:10:07.431 PhoneSwitcher: Data switch state=START due to reason=MANUAL on subId 2
+22:10:17.536 PhoneSwitcherForMultiSim: DDS change success, PhoneId : 1
+22:10:17.536 PhoneSwitcherForMultiSim: broadcastDdsChangeResult(true, 1), ddsPhoneId = 1
+22:10:17.576 PhoneSwitcher: notifyPreferredDataSubIdChanged to 2
+\`\`\`
+Separate \`rild getBarringInfoResponse: Invalid response\` at 22:09:53 is **not** a GET_RADIO_CAPABILITY error. No contemporaneous \`RAF=0\` or RadioCapability malformed response appeared in the shown 22:10 switch log.
+
+**Critical interpretation:** AOSP \`ProxyController.setRadioCapability()\` immediately returns *true without sending SET_RADIO_CAPABILITY* when each \`Phone.getRadioAccessFamily()\` equals the *requested* RAF. That message alone does **not** establish both cached RAFs equal 0, nor that the physical Exynos modem supports dynamic LTE reallocation. See https://android.googlesource.com/platform/frameworks/opt/telephony/+/refs/heads/main/src/java/com/android/internal/telephony/ProxyController.java .
+
+AOSP \`ITelephony.getRadioAccessFamily(phoneId,String)\` can query ProxyController cached per-phone RAF read-only. Source: https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/telephony/java/com/android/internal/telephony/ITelephony.aidl . Added \`raf\` command to \`tools/android16/AliceDataSimSwitch.java\` in commit \`143099d519c63f00473d079e4d1debcd7620d9e2\`. Compile with existing Google R8 to dex JAR; \`raf\` queries both phoneIds without modem writes. In a rooted \`app_process\` caller, \`callingPackage\` is passed as null to avoid claiming a package owned by a different UID. OEM Telephony might reject this with SecurityException; if so log it and do not infer zero.
+
+\`\`\`sh
+# After downloading current tools/android16/AliceDataSimSwitch.java:
+cd "$HOME/Downloads/ALICE_DDS"
+R8_JAR="$PWD/r8-8.8.34.jar" bash tools/android16/build_alice_data_sim_switch.sh "$PWD/alice-data-sim-switch.jar"
+adb -d push alice-data-sim-switch.jar /data/local/tmp/alice-data-sim-switch.jar
+adb -d shell 'su -c "CLASSPATH=/data/local/tmp/alice-data-sim-switch.jar app_process /system/bin AliceDataSimSwitch raf"'
+\`\`\`
+
+Interpret cached RAF values in both slots before proposing any ROM change. Raf mask containing LTE **does not prove WWAN LTE registration**. A no-op because both cached RAFs are 0 can hide broken RadioCapability initialization, whereas a no-op because both are nonzero may simply reflect framework assumption of dual same capability despite a legacy modem's 4G+3G behavior. Samsung originally advertised S8+ dual-SIM as 4G+3G, not 4G+4G: https://www.samsung.com/sg/news/local/samsung-announces-availability-of-galaxy-s8-s8plus-and-galaxy-tab-s3-in-singapore/
+
+**No boot/vendor flashing or CP/EFS changes; preserve current camera and working Viettel LTE baseline.** Earlier experimental \`Phone.updateAllowedNetworkTypes\` fallback patch remains disabled by default and **does not address a possibly no-op \`ProxyController.setRadioCapability\` decision** without more actual RAF evidence.
