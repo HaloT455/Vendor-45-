@@ -135,3 +135,37 @@ Interpretation:
 - **No build/flash patch yet:** A safe framework-side compatibility fix would need the actual Android 16 system/framework sources and correct overlay/package context; the vendor repository alone cannot directly patch the Java `Phone` object. Guessing a replacement RAF capability that exceeds actual Exynos8895 support is unacceptable.
 - The current device is proven LTE(PS HOME) on Viettel slot0 and UMTS(CS HOME, PS NOT_REG_OR_SEARCHING) on MobiFone slot1. The data subscription mapping remains `subId=1` Viettel, `subId=2` MobiFone, `defaultDataSubId=1`, `activeDataSubId=1`. No successful switch to MobiFone default data has been observed. Therefore, no claim of handoff failure or Dual 4G on the actual device.
 - Do not override RadioCapability or change RAF mask to force both LTE. Maintain working 4G Viettel, MobiFone 3G, camera/video.
+
+
+## Implemented source-only opt-in Phone1 RAF0 fallback candidate (2026-10-24)
+
+Added:
+- \`patches/android16/0001-Phone-optional-S8Plus-phone1-RAF0-framework-fallback.patch\`
+- \`tools/test_android16_phone_raf0_trial_patch.py\`
+- upgraded \`tools/alice_sim2_lte_handoff_probe.py\` to parse \`Logical SIM slot N: subId=M\` and independently assess \`CS/PS WWAN\` RAT/registration, **not** IWLAN.
+- CI selftest for the patch, parsing and snapshots.
+
+**Candidate fix mechanism:** In a compatible Android16 \`frameworks/opt/telephony\` source checkout, the patch guards \`Phone.updateAllowedNetworkTypes()\` against *Phone1* cached \`RAF_UNKNOWN=0\`. It uses only \`android:string/config_radio_access_family\` (currently confirmed \`GSM|CDMA|EVDO|WCDMA|LTE\`) as fallback, rather than fabricating Qualcomm modem information. It is gated by the **default-disabled** device property \`persist.vendor.alice.s8p_raf0_fallback\` and by \`getPhoneId()==1\`. Phone0 is not modified in behavior. When disabled (default), patched behavior is identical to AOSP.
+
+This fixes only the **framework pre-RIL abort branch** on an opt-in build; it does **NOT** repair native Samsung \`responseRadioCapability: Invalid response\`, it is not proof of two LTE physical stacks, and it cannot generate independent LTE bearers on CP hardware that doesn't have them. The built system framework could have different source layout/Telephony classes; patch applicability must be verified against the **exact running ROM source**.
+
+**Apply to a full ROM source checkout only, not to the existing Vendor tree as a fake binary:**
+
+\`\`\`bash
+cd /path/to/android16/frameworks/opt/telephony
+git apply --check /path/to/Vendor-45-/patches/android16/0001-Phone-optional-S8Plus-phone1-RAF0-framework-fallback.patch
+git apply /path/to/Vendor-45-/patches/android16/0001-Phone-optional-S8Plus-phone1-RAF0-framework-fallback.patch
+# Then build the matching Telephony/ROM targets and run CTS/telephony tests.
+# Do NOT turn on the property or flash an unverified image.
+\`\`\`
+
+In the Vendor repository, offline validation can be run as:
+
+\`\`\`bash
+python3 tools/alice_sim2_lte_handoff_probe.py --selftest
+python3 tools/test_android16_phone_raf0_trial_patch.py
+\`\`\`
+
+**Release gate:** The repository DOES NOT include the current phone's matching framework source, so the Phone.java patch has NOT been applied to the owner's phone system image and has NOT been compiled into flashable \`boot.img\`, \`vendor.img\`, or a full ROM. Neither kernel driver nor Samsung proprietary RIL has been changed. Preserve the working V12R5T boot and camera/video. Independently confirm an actual DDS switch \`defaultDataSubId=2\` and \`activeDataSubId=2\` before claiming handoff was repaired.
+
+The authoritative Redmi Note5 Pro MIUI Dual4G release relied on Snapdragon-supported modem firmware; this source patch is a **limited Android Telephony compatibility experiment**, not a Qualcomm firmware transplant.
