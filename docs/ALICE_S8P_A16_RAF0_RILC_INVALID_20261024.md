@@ -240,3 +240,33 @@ printf "%s\n" "$BOOTCLASSPATH" | tr ":" "\n" | grep -Ei "telephony|framework|ser
 \`\`\`
 
 **No proof that the exact matching Samsung OneUI8 Telephony source is publicly released or built in current Vendor/Kernel repos.** Do not replace \`TeleService.apk\` just because \`pm path\` shows it; replacing signed Samsung apps/core framework JARs on a working phone risks zygote/phone-process bootloop and loss of mobile connectivity. The current source-only RIL fallback trial cannot be packaged into a flash-ready boot/vendor without matching framework build. The stable S8+ camera/video and 4G Viettel should be preserved.
+
+
+## Verified real ROM framework path and safe binary capture (S8+, 2026-10-24)
+
+Owner's LIVE read-only ADB output from OneUI8 Android16 S8+:
+\`\`\`text
+ro.product.vendor.device=dream2lte
+ro.product.device=r0s
+uname -r=4.4.302-Alice-V12R5T-MGLRU-KSU32590-Enf+
+/system/framework/telephony-common.jar  6.2M
+/system/framework/services.jar          24M
+/system/priv-app/TeleService/TeleService.apk 7.9M
+BOOTCLASSPATH includes /system/framework/telephony-common.jar
+\`\`\`
+
+**Most likely executable target is the actual current system \`telephony-common.jar\`, NOT \`TeleService.apk\` nor kernel/vendor partitions.** However the JAR's DEX must be inspected to prove \`com.android.internal.telephony.RIL\`, \`Phone\`, \`ProxyController\` and \`RIL.makeStaticRadioCapability\` actually exist, because OEM ports vary. A BOOTCLASSPATH entry establishes the file's role, not that its DEX methods match current open-source AOSP.
+
+Added \`tools/android16/alice_pull_telephony_framework.py\` at Vendor commit \`4baad44eb6338d38b782fa25e5ba05342abdd824\`, which **only** ADB pulls \`/system/framework/telephony-common.jar\` to Linux, prints SHA256, enumerates \`classes*.dex\` and checks method/class descriptors as binary string presence. It has no root or phone writes. Selftest is in Vendor CI. The byte-string inventory is not source decompilation.
+
+Linux command:
+\`\`\`bash
+cd ~/Downloads
+curl -fL "https://raw.githubusercontent.com/HaloT455/Vendor-45-/4baad44eb6338d38b782fa25e5ba05342abdd824/tools/android16/alice_pull_telephony_framework.py" -o alice_pull_telephony_framework.py
+python3 alice_pull_telephony_framework.py --selftest
+python3 alice_pull_telephony_framework.py --out "$HOME/Downloads/ALICE_ROM_RADIO_DUMP"
+\`\`\`
+
+If \`RIL\` or \`makeStaticRadioCapability\` is missing, inspect class location in other framework jars rather than trying to patch nonexisting methods. If present, compare decompiled ROM-specific RIL.java and GET_RADIO_CAPABILITY callback handling to the opt-in candidate patch before requesting a ROM-compatible rebuilt JAR. Any boot-classpath replacement can cause severe bootloop even with valid dex; it requires exact signatures, verified dexopt/hidden API/core runtime compatibility and **tested recovery** before installation.
+
+NO flash-ready or tested Android16 telephony jar is available yet; source-only RIL.patch remains OFF by default. No evidence confirms simultaneous Exynos8895 Dual LTE. Preserve LTE Viettel/HSUPA MobiFone and stable camera/video.
