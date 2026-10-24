@@ -359,3 +359,27 @@ Real \`ProxyController.getMaxRafSupported()\`/min returns 0 when both phones RAF
 **Strict constraints**: The JADX Java text is **not** compilable ROM source simply because it was decompiled. The new file is a *source-level proposal*, not an in-place patch to \`classes.dex\`. No verified smali/baksmali surgical DEX editing, no replacement JAR, no system/framework flashing. Because this is a BOOTCLASSPATH JAR, installing an untested rebuild can bootloop or disrupt radio; before any real-world installation need exact method-level smali from the same original SHA, same signing/ART format expectations, offline DEX reassembly and verification, **and tested recovery/rollback**. On a patched ROM, on-device property_contexts/SELinux handling for the optional persist.vendor property must also be defined if opt-in mode is enabled. Direct \`setprop\` alone cannot change stock bytecode and should not be used as a purported fix.
 
 **Not a Dual 4G guarantee:** Giving both Phones fallback RAF=64508 may make both identical; the ProxyController's *maximum/minimum* still cannot infer the modem's actual stronger/weaker radio-stack capability from identical values, and a real \`setRadioCapability\` exchange may remain unsupported by proprietary Exynos8895 RIL. This repairs a proven **framework fallback bug** only if compiled/applied, not OEM RF hardware limitations. Manufacturer original S8+ Dual SIM spec was 4G+3G.
+
+
+## Actual uploaded BOOTCLASSPATH JAR / byte-accurate DEX verification
+
+Owner directly attached the original 6,525,408-byte `telephony-common.jar`. The exact uploaded binary was analyzed locally:
+```text
+JAR SHA256 8e58d49ad355df0e69af9a459edd138fdcf23c6462059b058ba394173c3769e1
+classes.dex length 6117656, version dex/039
+DEX internal SHA1 VALID; internal Adler32 VALID
+Lcom/android/internal/telephony/RIL;->makeStaticRadioCapability():
+  code_item_off = 3408124
+  registers_size=8, ins_size=1, outs_size=7, tries_size=0, insns_size=38 (16-bit words)
+  DEX byte off 3408166: 12 04 = Dalvik const/4 v4, #+0
+  invoke-direct/range {v0 .. v6},
+    Lcom/android/internal/telephony/RadioCapability;-><init>(IIIILjava/lang/String;I)V
+  v4 is the fourth int constructor parameter: cached Radio Access Family
+```
+This is **byte-level verification**, not just JADX output.
+
+The actual DEX has `Resources.getSystem` method reference, but DOES NOT contain a method reference to `RadioAccessFamily.rafTypeFromString` or the literal string `config_radio_access_family`. Therefore an in-place *literal-only* 2-byte modification cannot implement the desired gated, system-resource-derived fallback. A high-quality fix would require rebuilding/reassembling the relevant DEX with additional method and string references and verifying runtime ART compatibility. Merely forcing a constant LTE mask risks misrepresenting true proprietary modem capabilities; do not offer that as a validated fix or claim Dual-4G.
+
+Produced owner-facing **offline-only audit bundle** with (a) exact DEX checksum/offset metadata, (b) source-only candidate Smali method guarded by dream2lte + default-off property, (c) explicit no-flash status and recovery prerequisites. The original JAR on the phone was not touched, and **no flash-ready replacement telephony-common.jar** was fabricated. The draft Smali candidate has not been assembled/disassembled or tested on hardware, so it is not a deployable patch.
+
+Even a successfully assembled corrected `RIL.makeStaticRadioCapability` would only help when that fallback method is actually invoked, and would not prove 4G+4G on Exynos8895.
