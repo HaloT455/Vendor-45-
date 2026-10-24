@@ -19,6 +19,7 @@ on:
       - "tools/test_sim_reference_regression.py"
       - "tools/test_sim_pair_contract.py"
       - "tools/alice_sim2_lte_handoff_probe.py"
+      - "tools/alice_dds_lte_post_switch_triage.py"
       - "tools/alice_lte_slot1_policy_trial.py"
       - "tools/alice_radio_capability_raf0_audit.py"
       - "tools/test_android16_phone_raf0_trial_patch.py"
@@ -63,6 +64,7 @@ jobs:
           python3 tools/test_sim_reference_regression.py
           python3 tools/test_sim_pair_contract.py --kernel-root pair-kernel --output out/paired-simcam-contract.json
           python3 tools/alice_sim2_lte_handoff_probe.py --selftest
+          python3 tools/alice_dds_lte_post_switch_triage.py --selftest
           python3 tools/alice_lte_slot1_policy_trial.py --selftest
           python3 tools/alice_radio_capability_raf0_audit.py --selftest
           python3 tools/test_android16_phone_raf0_trial_patch.py
