@@ -46,3 +46,26 @@ adb -d shell cmd overlay list --user 0
 If the *effective* resource is empty/unrecognized, create a compatible system/framework RRO for `GSM|WCDMA|LTE` based on confirmed owner baseline SIM1 LTE support; verify install status, idmap2, and Phone process restart/boot after a reversible system overlay trial. Do not copy Qualcomm MIUI modem bits. If effective resource is already nonzero but RILJ reports 0, inspect platform resource namespace, phone process initialization and RILJ fallback/parse handling; don't blindly add vendor props.
 
 Native Samsung radio `responseRadioCapability` needs independent compatibility work if the static fallback is not sufficient. No CP/NV/EFS/IMEI change, no claim that camera or 4G+4G is fixed or firmware is ready to flash. Preserve known-booting V12R5T Enforcing boot and video6 vendor baseline.
+
+
+## Live 17:47 snapshot (user's latest ADB radio-buffer evidence)
+
+```text
+Phone-1 : setPreferredNetworkType: Abort, unknown RAF: 0
+PhoneSwitcherForMultiSim: mPreferredDataPhoneId = 0,
+                         mPrimaryDataSubId = 1, ddsSubId = 1
+PhoneSwitcherForMultiSim: updatePreferredDataPhoneId:
+                         mPreferredDataPhoneId = 0(PRIMARYDATA)
+```
+
+User verified `Logical SIM slot 0: subId=1` (Viettel) and `Logical SIM slot 1: subId=2` (MobiFone); `defaultDataSubId=1`, `activeDataSubId=1`. **This is NOT a failed handoff after choosing MobiFone; no actual data-subscription switch to 2 is evidenced.** PhoneSwitcher is correctly choosing Viettel given DDS=1. The separate `Phone-1` RAF 0 is a reproducible Telephony/RIL compatibility fault, not proof the hardware supports concurrent LTE or the cause of any specific SIM2 attach status.
+
+The user reports Viettel PS/CS WWAN HOME LTE while MobiFone CS WWAN HOME UMTS and PS WWAN NOT_REG_OR_SEARCHING UMTS. S8+ official launch specifications describe its dual-SIM slot as **4G + 3G hybrid**, so Xiaomi Redmi Note 5 Pro Snapdragon 636's 4G+4G upgrade is not transferable without direct Samsung modem evidence. Manufacturer source: https://www.samsung.com/sg/news/local/samsung-announces-availability-of-galaxy-s8-s8plus-and-galaxy-tab-s3-in-singapore/
+
+### Next gated steps — no destructive system change
+
+1. Inspect actual `config_radio_access_family` resource, ideally `adb -d shell cmd overlay lookup --user 0 android android:string/config_radio_access_family`, or execute `tools/alice_radio_capability_raf0_audit.py`.
+2. If the resource is empty, **consider a reversible framework-resource overlay** with a capability mask supported by Samsung modem rather than falsely advertising two independently LTE-capable physical stacks. Verify effect on both phones, RIL warning frequency and calling/data.
+3. Treat `responseRadioCapability: Invalid response` separately: HAL response packaging can still violate native RIL requirements even if framework static fallback is fixed. Do not patch opaque proprietary RIL/CP without a verified baseline.
+4. If user wants to test LTE on SIM2, switch **default data subscription to 2** via privileged Telephony framework or SIM Manager UI; ensure `defaultDataSubId=2`, `activeDataSubId=2`; only then inspect MobiFone PS WWAN LTE. No shell `settings put` shortcut as a substitute for proper `SubscriptionManagerService.setDefaultDataSubId` (requires MODIFY_PHONE_STATE).
+5. Never promise or label S8+ 4G+4G hardware achieved based solely on `9,9`, two RadioConfig instances, or an Android overlay. Preserve working V12R5T, camera and Viettel LTE.
