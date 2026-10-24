@@ -128,3 +128,19 @@ Both registered operators appeared in `gsm.operator.alpha=Viettel,MobiFone`. **T
 ## Host safety constraints
 
 For S8+ Exynos 8895, 4G+4G requires two independently observed LTE PS registrations at the same time; neither two HIDL IRadio names nor `9,9` satisfies this criterion. Never use Redmi Qualcomm firmware/binaries on Samsung. Do not overwrite Test7 proprietary RIL ELF, Samsung modem firmware, CP, EFS or IMS profiles without verified rollback and hardware evidence.
+
+
+## Runtime proof: revised SIM handoff probe passes on real Galaxy S8+ (2026-10-24)
+
+Owner ran \`tools/alice_sim2_lte_handoff_probe.py\` from commit \`f04c5f04991a\`. \`--selftest\` output PASS; \`--snapshot sim1\` confirmed:
+- \`ro.product.vendor.device=dream2lte\` and \`persist.radio.multisim.config=dsds\`;
+- mapping physical \`slot0→subId1\` Viettel, \`slot1→subId2\` MobiFone;
+- \`default_data_sub_id=1\`, \`active_data_sub_id=1\`, \`default_data_phone_id_verified=0\`;
+- phone0 \`CS WWAN HOME LTE\`, \`PS WWAN HOME LTE\`, \`ps_lte_registered=true\`;
+- phone1 \`CS WWAN HOME UMTS\`, \`PS WWAN NOT_REG_OR_SEARCHING UMTS\`, \`ps_lte_registered=false\`;
+- legacy getprop indicators \`LTE,IWLAN\`, demonstrating why getprop alone is misleading;
+- recent 350-line radio buffer error counts all zero. **This DOES NOT prove older RAF0 errors are resolved**, since these are counts over a rolling short log window;
+- \`wwan_ps_both_lte_registered=false\`.
+
+This is the **validated stable baseline**. No flash or modem edit was made; the diagnostic code does not repair LTE. It positively verifies the data handoff A/B **has not happened yet**: MobiFone is NOT the default data subscription. Any follow-up probe should save \`--snapshot sim1 --output sim1.json\` before selecting MobiFone, then \`--snapshot sim2 --output sim2.json\` once \`defaultDataSubId=2\` and compare. Labels alone do not prove data switching. Avoid modifying EFS/CP or guessing binder transaction IDs; Android16 \`cmd phone\` does not provide a generic set-default-data-sub-ID verb in AOSP; supported Settings/privileged Telephony API is required.
+
