@@ -69,3 +69,48 @@ The user reports Viettel PS/CS WWAN HOME LTE while MobiFone CS WWAN HOME UMTS an
 3. Treat `responseRadioCapability: Invalid response` separately: HAL response packaging can still violate native RIL requirements even if framework static fallback is fixed. Do not patch opaque proprietary RIL/CP without a verified baseline.
 4. If user wants to test LTE on SIM2, switch **default data subscription to 2** via privileged Telephony framework or SIM Manager UI; ensure `defaultDataSubId=2`, `activeDataSubId=2`; only then inspect MobiFone PS WWAN LTE. No shell `settings put` shortcut as a substitute for proper `SubscriptionManagerService.setDefaultDataSubId` (requires MODIFY_PHONE_STATE).
 5. Never promise or label S8+ 4G+4G hardware achieved based solely on `9,9`, two RadioConfig instances, or an Android overlay. Preserve working V12R5T, camera and Viettel LTE.
+
+
+## Device evidence update — framework RAF resource VALID, overlay ACTIVE
+
+On 2026-10-24 the owner ran:
+
+```text
+adb shell cmd overlay lookup --user 0 android android:string/config_radio_access_family
+GSM|CDMA|EVDO|WCDMA|LTE
+
+adb shell cmd overlay list --user 0
+android
+[x] android.auto_generated_rro_vendor__
+[x] android.auto_generated_rro_product__
+```
+
+**This FALSIFIES the earlier hypothesis that the effective Android framework overlay is missing, empty or contains an unrecognized RAF token.** These five tokens are all recognized by AOSP `RadioAccessFamily.rafTypeFromString()` and should map to a nonzero mask. Replacing the existing overlay with another `GSM|WCDMA|LTE` RRO would NOT be an evidence-based fix. Neither `ro.telephony.default_network=9,9` nor the per-slot USER LTE mask should be changed.
+
+Two `adb: no devices found` replies immediately before the successful lookup were transient ADB visibility failures; later successful commands demonstrate that they are not evidence of a permanent radio problem.
+
+The earlier `Faking RIL_REQUEST_GET_RADIO_CAPABILITY response using 0` was logged at 05:31:41, whereas the **valid effective overlay lookup was later**, so it is not yet proven that the same resource value was effective when `RILJ` constructed the cached static RadioCapability on startup. At 17:47 the user still observed `Phone-1 setPreferredNetworkType: Abort, unknown RAF: 0` while both carriers were registered for voice and Viettel LTE was live. AOSP's `RIL.makeStaticRadioCapability` fetches `config_radio_access_family` from resources *at invocation*, not from the shell's live overlay display. State cached by `Phone` may differ if resources or the phone process changed in between; verify that before making changes.
+
+**Next safest diagnostic (read-only):**
+
+```bash
+echo '===== EFFECTIVE RAF CONFIG ====='
+adb -d shell cmd overlay lookup --user 0 android android:string/config_radio_access_family
+
+echo '===== CURRENT PHONE CAPABILITY (SANITIZED) ====='
+adb -d shell dumpsys phone | grep -iE 'mRadioCapability|RadioCapability|mRadioAccessFamily|mPhoneId' | tail -35
+
+echo '===== GET CAPABILITY FAILURES (RECENT LOG BUFFER) ====='
+adb -d shell 'logcat -b radio -d -t 5000' |
+grep -iE 'responseRadioCapability: Invalid response|Faking RIL_REQUEST_GET_RADIO_CAPABILITY|unknown RAF' |
+tail -25
+```
+
+Do not print full `dumpsys phone` (it can contain subscriber identifiers). Do not claim simultaneous LTE; an LTE attachment on SIM1 while SIM2 reports CS UMTS/PS UMTS NOT_REG_OR_SEARCHING is still LTE+UMTS. Next relevant *functional* test requires an observed switch from defaultDataSubId=1 (Viettel) to 2 (MobiFone) before evaluating LTE handoff; launching a Settings screen alone is not a switch.
+
+Any proposed native RIL/HIDL repair must respect Android's RIL_RadioCapability payload layout. AOSP `libril/ril_service.cpp` emits `responseRadioCapability: Invalid response` if `response == NULL` OR `responseLen != sizeof(RIL_RadioCapability)`. Without details of proprietary Samsung RIL return/error/payload, **no safe flash-ready binary patch has been demonstrated**. Do not manufacture a radio capability or flash Qualcomm modem firmware.
+
+AOSP references:
+- https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/telephony/java/android/telephony/RadioAccessFamily.java
+- https://android.googlesource.com/platform/frameworks/opt/telephony/+/refs/heads/main/src/java/com/android/internal/telephony/RIL.java
+- https://android.googlesource.com/platform/hardware/ril/+/0a0f220a983b866017c00dc5211c7bf8aa32a852/libril/ril_service.cpp
