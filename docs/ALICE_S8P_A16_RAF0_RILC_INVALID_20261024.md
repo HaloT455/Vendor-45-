@@ -511,3 +511,21 @@ An earlier strict-diff V1 test failed with a bare \`STOP:\` because it checked *
 For offline ZIP metadata testing, a host-only script \`ALICE_S8P_RAF0_OFFLINE_JAR_AUDIT.py\` was supplied to user, requiring exact original SHA, trial DEX SHA, 3628-class PASS report, and reproducing original 787 ZIP entries while preserving all 786 non-DEX entry bytes. It deliberately produces \`.NOT-FOR-INSTALL.zip\`, not a flashable artifact. This script is only selftested on a small ZIP fixture: **no owner's full archive run yet**.
 
 Objective remains repair Android16's hardcoded \`RIL.makeStaticRadioCapability()\` RAF=0 fallback, which in itself does not imply modem can do concurrent 4G+4G. Keep working kernel 4.4.302-Alice-V12R5T and camera/video.
+
+
+## 2026-10-25 offline trial DEX strict PASS, ZIP flag 0x808 audit bug resolved
+
+Owner's **real ThinkPad** completed Smali roundtrip and strict comparison:
+\`\`\`
+PASS: offline trial DEX checksum, DEX039 and patch string markers
+TRIAL DEX SHA256=c1a641b18d92a28dd2c3f25a7930febc91e97d2199fb434e42726360b042a0e4
+DEX bytes=6117972
+PASS: patch references survived assemble / disassemble
+PASS: 3628 Smali classes compared; only RIL.makeStaticRadioCapability changed
+PASS: original/candidate DEX class, field and prototype counts preserved
+\`\`\`
+The first \`ALICE_S8P_RAF0_OFFLINE_JAR_AUDIT.py\` incorrectly stopped at \`ZIP entry metadata changed: META-INF/MANIFEST.MF\`. Inspection of **exact original uploaded 6,525,408-byte JAR** showed manifest \`flag_bits=0x808\`, where bit 0x8 represents a ZIP data descriptor and bit 0x800 UTF-8. Python \`zipfile.writestr()\` normalizes these flags (e.g., to 0x800), even when the file content is unchanged. This is a **ZIP repackaging audit implementation bug**, not a DEX failure. Do not disable ZIP integrity tests to suppress the report.
+
+A corrected **offline byte-preserving ZIP graft** was implemented and tested locally against the owner's exact original JAR. It replaces only the \`classes.dex\` stored payload, updates its local+central CRC and sizes, shifts subsequent central-directory local-header offsets, and updates the EOCD central-directory offset. It does **not** recompress the other 786 entries, thereby retaining the original 0x808 flags, data descriptors, and local-record bytes. Using the original DEX plus 316 dummy bytes (exact size delta for real trial DEX), it PASSed \`zipfile.testzip()\`, 786 byte-identical untouched local entry ranges and all metadata/flags checks. The corrected user's downloadable script is \`ALICE_S8P_RAF0_OFFLINE_JAR_AUDIT_V2.py\` from the ChatGPT conversation; **the owner has not yet tested it against the actual candidate DEX**.
+
+**Important:** offline ZIP CRC/structure checks do not validate system ART bootclasspath operation, SELinux property visibility/registration or tested recovery. No JAR has been installed on S8+ and **4G+4G remains unproven**. The candidate is explicitly named \`telephony-common.RAF0-TRIAL.NOT-FOR-INSTALL.zip\`. Do not flash.
