@@ -182,31 +182,68 @@ def dual_lte_check(snapshot: dict) -> dict:
     }
 
 
+def wwan_ps_lte(snapshot: dict, phone_id: int) -> bool | None:
+    """True only for cellular PS registered HOME/ROAMING LTE; never IWLAN."""
+    registration = snapshot.get("wwan_registration")
+    if not isinstance(registration, list):
+        return None
+    for record in registration:
+        if record.get("phone_id") == phone_id:
+            ps = record.get("ps_wwan", {})
+            if ps:
+                return (ps.get("registration") in ("HOME", "ROAMING")
+                        and ps.get("rat") in LTE)
+            # Older manually assembled A/B fixture with boolean only.
+            value = record.get("ps_lte_registered")
+            return value if isinstance(value, bool) else None
+    return None
+
+
 def compare(sim1: dict, sim2: dict) -> dict:
+    """Confirm *real* data-SIM switch and compare registered WWAN PS LTE."""
     a, b = sim1["default_data_phone_id_verified"], sim2["default_data_phone_id_verified"]
     before = {x["phone_id"]: x["rat_class"] for x in sim1["slots"]}
     after = {x["phone_id"]: x["rat_class"] for x in sim2["slots"]}
+    before_0 = wwan_ps_lte(sim1, 0)
+    after_0 = wwan_ps_lte(sim2, 0)
+    after_1 = wwan_ps_lte(sim2, 1)
+    new_mapping = sim2.get("subscription_mapping", {})
+    actual_sub = new_mapping.get("active_data_sub_id")
+    target_sub = new_mapping.get("slot_to_sub_id", {}).get("1")
+    active_matched = (actual_sub == target_sub if actual_sub is not None
+                      and target_sub is not None else None)
     if a != 0 or b != 1:
         conclusion = "DATA_SWITCH_NOT_CONFIRMED"
-        next_check = "Confirm Settings > SIM manager > Mobile data switched SIM1 to SIM2, then recapture."
-    elif before.get(0) == "LTE_REPORTED" and after.get(1) == "LTE_REPORTED":
-        conclusion = "LTE_ROLE_HANDOFF_REPORTED"
-        next_check = "Verify LTE WWAN service registration, calls and data; getprop RAT alone is not proof."
-    elif before.get(0) == "LTE_REPORTED" and after.get(1) != "LTE_REPORTED":
+        next_check = ("Confirm Settings > SIM Manager > Mobile data changed defaultDataSubId "
+                      "from Viettel 1 to MobiFone 2; opening Settings alone does not switch.")
+    elif before_0 is True and after_1 is True:
+        conclusion = "SIM2_WWAN_PS_LTE_REGISTERED"
+        next_check = ("MobiFone PS WWAN LTE registered. Check Viettel WWAN at the same "
+                      "instant and test calls/data; this alone does not prove dual LTE.")
+    elif before_0 is True and after_1 is False:
         conclusion = "SIM2_LTE_HANDOFF_NOT_OBSERVED"
-        next_check = ("Test SIM2 alone with SIM1 absent, network selection and live RadioCapability/RAF "
-                      "callback; no safe boot/vendor radio patch identified yet.")
+        next_check = ("SIM2 selected but cellular PS LTE not registered. Review RadioCapability/"
+                      "RIL callbacks, carrier registration state and active data sub; "
+                      "do not change CP/EFS or remove SIMs.")
+    elif before_0 is None or after_1 is None:
+        conclusion = "WWAN_REGISTRATION_DATA_MISSING"
+        next_check = ("Capture fresh snapshots with current tool; do not decide from "
+                      "gsm.network.type or IWLAN.")
     else:
-        conclusion = "NOT_ENOUGH_BASELINE_EVIDENCE"
-        next_check = "First establish SIM1 LTE with the reference boot/vendor and capture a fresh snapshot."
+        conclusion = "BASELINE_SIM1_LTE_NOT_CONFIRMED"
+        next_check = "Restore the working Viettel LTE baseline and recapture before another A/B."
     return {
         "status": conclusion,
         "default_data_phone_id_before": a,
         "default_data_phone_id_after": b,
-        "slot0_rat_before_after": [before.get(0), after.get(0)],
-        "slot1_rat_before_after": [before.get(1), after.get(1)],
+        "slot0_getprop_rat_before_after_diagnostic_only": [before.get(0), after.get(0)],
+        "slot1_getprop_rat_before_after_diagnostic_only": [before.get(1), after.get(1)],
+        "sim1_wwan_ps_lte_before": before_0,
+        "sim1_wwan_ps_lte_after": after_0,
+        "sim2_wwan_ps_lte_after": after_1,
+        "active_data_sub_matches_slot1": active_matched,
         "next_check": next_check,
-        "simultaneous_dual_lte_proven": False,
+        "simultaneous_dual_lte_proven": bool(after_0 is True and after_1 is True),
         "no_firmware_changes": True,
     }
 
@@ -241,11 +278,22 @@ def selftest() -> None:
     assert rat_type("LTE") == "LTE_REPORTED"
     a = {"default_data_phone_id_verified": 0,
          "slots": [{"phone_id": 0, "rat_class": "LTE_REPORTED"},
-                   {"phone_id": 1, "rat_class": "3G_REPORTED"}]}
+                   {"phone_id": 1, "rat_class": "OTHER"}],
+         "wwan_registration": [
+             {"phone_id": 0, "ps_wwan": {"registration": "HOME", "rat": "LTE"}},
+             {"phone_id": 1, "ps_wwan": {"registration": "NOT_REG_OR_SEARCHING", "rat": "UMTS"}}]}
     b = {"default_data_phone_id_verified": 1,
+         "subscription_mapping": {"slot_to_sub_id": {"0": 1, "1": 2},
+                                  "default_data_sub_id": 2,
+                                  "active_data_sub_id": 2},
          "slots": [{"phone_id": 0, "rat_class": "3G_REPORTED"},
-                   {"phone_id": 1, "rat_class": "LTE_REPORTED"}]}
-    assert compare(a, b)["status"] == "LTE_ROLE_HANDOFF_REPORTED"
+                   {"phone_id": 1, "rat_class": "OTHER"}],
+         "wwan_registration": [
+             {"phone_id": 0, "ps_wwan": {"registration": "NOT_REG_OR_SEARCHING", "rat": "UMTS"}},
+             {"phone_id": 1, "ps_wwan": {"registration": "HOME", "rat": "LTE"}}]}
+    assert compare(a, b)["status"] == "SIM2_WWAN_PS_LTE_REGISTERED"
+    assert compare(a, b)["active_data_sub_matches_slot1"]
+    assert not compare(a, b)["simultaneous_dual_lte_proven"]
     two = {"properties": {"gsm.sim.state": "LOADED,LOADED"}, "slots":
            [{"phone_id": 0, "rat_class": "LTE_REPORTED"},
             {"phone_id": 1, "rat_class": "LTE_REPORTED"}]}
@@ -261,7 +309,9 @@ def selftest() -> None:
     assert not dual_lte_check(two)["simultaneous_4g_service_proven"]
     two["slots"][1]["rat_class"] = "3G_REPORTED"
     assert not dual_lte_check(two)["candidate_both_lte_rat"]
-    b["slots"][1]["rat_class"] = "3G_REPORTED"
+    b["wwan_registration"][1]["ps_wwan"] = {
+        "registration": "NOT_REG_OR_SEARCHING", "rat": "UMTS"
+    }
     assert compare(a, b)["status"] == "SIM2_LTE_HANDOFF_NOT_OBSERVED"
     b["default_data_phone_id_verified"] = None
     assert compare(a, b)["status"] == "DATA_SWITCH_NOT_CONFIRMED"
