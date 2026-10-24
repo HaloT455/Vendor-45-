@@ -37,9 +37,51 @@ public final class AliceDataSimSwitch {
         return ((Number) call(api, obj, method, argTypes, params)).intValue();
     }
 
+    /** Query the cached ProxyController RAF through read-only ITelephony Binder. */
+    private static void printCurrentRaf() throws Exception {
+        Class<?> manager = Class.forName("android.os.ServiceManager");
+        Object rawBinder = manager.getMethod("getService", String.class)
+                .invoke(null, "phone");
+        if (rawBinder == null) {
+            throw new IllegalStateException("Telephony service 'phone' unavailable");
+        }
+        Class<?> binderApi = Class.forName("android.os.IBinder");
+        Class<?> stub = Class.forName("com.android.internal.telephony.ITelephony$Stub");
+        Object phone = stub.getMethod("asInterface", binderApi).invoke(null, rawBinder);
+        Class<?> phoneApi = Class.forName("com.android.internal.telephony.ITelephony");
+        Method readRaf;
+        boolean withPackage;
+        try {
+            readRaf = phoneApi.getMethod("getRadioAccessFamily", int.class, String.class);
+            withPackage = true;
+        } catch (NoSuchMethodException e) {
+            readRaf = phoneApi.getMethod("getRadioAccessFamily", int.class);
+            withPackage = false;
+        }
+        for (int phoneId = 0; phoneId <= 1; phoneId++) {
+            try {
+                // This root shell caller has no corresponding Android APK package.
+                // Passing null avoids falsely claiming to belong to another UID.
+                Object value = withPackage
+                        ? readRaf.invoke(phone, phoneId, (String) null)
+                        : readRaf.invoke(phone, phoneId);
+                int raf = ((Number) value).intValue();
+                System.out.println("ALICE_CACHED_RAF: phoneId=" + phoneId
+                        + " decimal=" + raf
+                        + " hex=0x" + Integer.toHexString(raf)
+                        + " LTE_BIT_4096=" + ((raf & 4096) != 0));
+            } catch (InvocationTargetException e) {
+                Throwable cause = e.getCause();
+                System.out.println("ALICE_CACHED_RAF_UNAVAILABLE: phoneId=" + phoneId
+                        + " cause=" + cause.getClass().getSimpleName());
+            }
+        }
+        System.out.println("ALICE_CACHED_RAF_READ_ONLY: no radio commands sent");
+    }
+
     private static void usage() {
-        System.err.println("USAGE: AliceDataSimSwitch status | set 2 | set 1");
-        System.err.println("  status = read only; set 2 = MobiFone, set 1 = Viettel.");
+        System.err.println("USAGE: AliceDataSimSwitch status | raf | set 2 | set 1");
+        System.err.println("  status / raf = read only; set 2 = MobiFone, set 1 = Viettel.");
         System.err.println("  Requires Android root WITH MODIFY_PHONE_STATE access.");
     }
 
@@ -50,11 +92,17 @@ public final class AliceDataSimSwitch {
             return;
         }
         boolean status = args.length == 1 && args[0].equals("status");
+        boolean raf = args.length == 1 && args[0].equals("raf");
         boolean setting = args.length == 2 && args[0].equals("set") &&
                 (args[1].equals("1") || args[1].equals("2"));
-        if (!status && !setting) {
+        if (!status && !raf && !setting) {
             usage();
             System.exit(2);
+            return;
+        }
+
+        if (raf) {
+            printCurrentRaf();
             return;
         }
 
