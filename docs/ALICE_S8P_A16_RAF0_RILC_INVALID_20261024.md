@@ -270,3 +270,49 @@ python3 alice_pull_telephony_framework.py --out "$HOME/Downloads/ALICE_ROM_RADIO
 If \`RIL\` or \`makeStaticRadioCapability\` is missing, inspect class location in other framework jars rather than trying to patch nonexisting methods. If present, compare decompiled ROM-specific RIL.java and GET_RADIO_CAPABILITY callback handling to the opt-in candidate patch before requesting a ROM-compatible rebuilt JAR. Any boot-classpath replacement can cause severe bootloop even with valid dex; it requires exact signatures, verified dexopt/hidden API/core runtime compatibility and **tested recovery** before installation.
 
 NO flash-ready or tested Android16 telephony jar is available yet; source-only RIL.patch remains OFF by default. No evidence confirms simultaneous Exynos8895 Dual LTE. Preserve LTE Viettel/HSUPA MobiFone and stable camera/video.
+
+
+## EXACT S8+ telephony-common.jar captured on real Android16 (2026-10-24)
+
+The owner **successfully pulled** the real \`/system/framework/telephony-common.jar\` from Galaxy S8+ to ThinkPad using the read-only ALICE inventory tool, with:
+\`\`\`text
+ALICE_JAR_CAPTURE: /home/halo-pmf/Downloads/ALICE_ROM_RADIO_DUMP/telephony-common.jar
+ALICE_JAR_BYTES: 6525408
+ALICE_JAR_SHA256: 8e58d49ad355df0e69af9a459edd138fdcf23c6462059b058ba394173c3769e1
+ALICE_JAR_DEX_FILES: classes.dex
+ALICE_DEX_CLASS_RIL: PRESENT
+ALICE_DEX_CLASS_Phone: PRESENT
+ALICE_DEX_CLASS_ProxyController: PRESENT
+ALICE_DEX_CLASS_RadioCapability: PRESENT
+ALICE_DEX_NAME_makeStaticRadioCapability: PRESENT
+ALICE_DEX_NAME_getRadioAccessFamily: PRESENT
+ALICE_DEX_NAME_setRadioCapability: PRESENT
+ALICE_DEX_NAME_updateAllowedNetworkTypes: PRESENT
+\`\`\`
+This **proves the DEX contains these strings/descriptors, NOT the exact method bodies or their class membership**. Do not extrapolate from class strings alone; decompile the exact binary next. No file from the owner's phone has been uploaded to GitHub or to this chat.
+
+**New reproducible read-only source-level inspection:**
+\`tools/android16/alice_decompile_telephony_raf.py\`, commit \`699339d75d099c9d99dd79ec76e0dee48ea4ce18\`.
+It pins the exact SHA256 above before accepting input; invokes official JADX v1.5.6 CLI with \`--single-class\` on \`RIL\`, \`Phone\`, \`ProxyController\` and locally saves Java-source reconstructions plus bounded \`ALICE_RAF_METHOD_EXCERPTS.txt\`. Java reconstruction is heuristic; a JADX decoding failure must NOT be interpreted as absence of a method. The tool does not patch/replace system JAR, run adb, or change CP/EFS.
+
+Official JADX: https://github.com/skylot/jadx/releases/tag/v1.5.6
+
+Steps on owner's ThinkPad:
+\`\`\`bash
+cd ~/Downloads
+curl -fL --retry 3 "https://github.com/skylot/jadx/releases/download/v1.5.6/jadx-1.5.6.zip" -o jadx-1.5.6.zip
+mkdir -p jadx-1.5.6
+unzip -oq jadx-1.5.6.zip -d jadx-1.5.6
+curl -fL "https://raw.githubusercontent.com/HaloT455/Vendor-45-/699339d75d099c9d99dd79ec76e0dee48ea4ce18/tools/android16/alice_decompile_telephony_raf.py" -o alice_decompile_telephony_raf.py
+python3 alice_decompile_telephony_raf.py --selftest
+python3 alice_decompile_telephony_raf.py --jadx "$HOME/Downloads/jadx-1.5.6/bin/jadx" --jar "$HOME/Downloads/ALICE_ROM_RADIO_DUMP/telephony-common.jar" --out "$HOME/Downloads/ALICE_ROM_RADIO_DUMP/raf_decompiled"
+\`\`\`
+If JADX executable has no +x bit: run \`chmod +x ~/Downloads/jadx-1.5.6/bin/jadx\` after confirming this is official archive. The report is local at \`~/Downloads/ALICE_ROM_RADIO_DUMP/raf_decompiled/ALICE_RAF_METHOD_EXCERPTS.txt\`. No modem-change/flash instruction is issued.
+
+**AOSP comparison anchors:**
+- \`RIL.makeStaticRadioCapability\`: how the context config resource feeds the zero/nonzero fallback RAF.
+- \`RIL.processResponse\` / \`getRadioCapability\`: whether the Samsung legacy RIL error falls back to a static object and what error conditions invoke it.
+- \`Phone.getRadioAccessFamily\`, \`Phone.updateAllowedNetworkTypes\`: which cached Phone RadioCapability becomes 0 and how it blocks RAT updates.
+- \`ProxyController.setRadioCapability\`: why both RAF=0 caused \`Already in requested configuration\` at DDS switch.
+
+**Patch-quality gates:** The current \`0002-RIL...\` is a **source-only AOSP-shaped experimental trial**, not yet verified against these actual OEM Decompiled method bodies. Do NOT build or flash a system JAR until the exact method signature and control flow are checked, a compatible ROM build environment is available, and a recovery/rollback mechanism is tested. Preserve working S8+ Viettel LTE, MobiFone HSUPA/UMTS, camera/video, boot V12R5T, proprietary modem.
