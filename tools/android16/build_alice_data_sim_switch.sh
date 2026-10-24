@@ -21,9 +21,33 @@ if [[ -z "$D8" ]]; then
   done
 fi
 if [[ -z "$D8" || ! -x "$D8" ]]; then
-  echo "ERROR: Android SDK Build-Tools d8 not found" >&2
-  echo "Install Android SDK Build-Tools, then set D8_BIN=/full/path/to/d8" >&2
-  exit 2
+  if [[ -z "${R8_JAR:-}" || ! -s "$R8_JAR" ]]; then
+    echo "ERROR: Android SDK d8 unavailable and R8_JAR not supplied" >&2
+    echo "Download com.android.tools:r8 from Google's Maven repository, then:" >&2
+    echo 'R8_JAR=/full/path/to/r8.jar bash tools/android16/build_alice_data_sim_switch.sh "$PWD/alice-data-sim-switch.jar"' >&2
+    exit 2
+  fi
+  if ! jar tf "$R8_JAR" | grep -q '^com/android/tools/r8/D8.class
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+mkdir -p "$TMP/classes" "$TMP/dex" "$(dirname "$OUTPUT")"
+javac --release 8 -d "$TMP/classes" "$SOURCE"
+if [[ -n "$D8" ]]; then
+  "$D8" --min-api 26 --output "$TMP/dex" "$TMP/classes/AliceDataSimSwitch.class"
+else
+  java -cp "$R8_JAR" com.android.tools.r8.D8 \
+    --min-api 26 --output "$TMP/dex" "$TMP/classes/AliceDataSimSwitch.class"
+fi
+test -s "$TMP/dex/classes.dex"
+(cd "$TMP/dex" && jar cf "$OUTPUT" classes.dex)
+test -s "$OUTPUT"
+echo "PASS: generated local Android DEX helper (NOT installed): $OUTPUT"
+sha256sum "$OUTPUT"
+; then
+    echo "ERROR: R8_JAR does not contain Google's D8 entrypoint" >&2
+    exit 2
+  fi
+  D8=""
 fi
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
