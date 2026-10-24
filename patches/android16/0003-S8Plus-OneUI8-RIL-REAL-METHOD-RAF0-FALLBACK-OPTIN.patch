@@ -1,0 +1,34 @@
+diff --git a/com/android/internal/telephony/RIL.java b/com/android/internal/telephony/RIL.java
+--- a/com/android/internal/telephony/RIL.java
++++ b/com/android/internal/telephony/RIL.java
+@@ -1,5 +1,25 @@
+-    RadioCapability makeStaticRadioCapability() {
+-        RadioCapability radioCapability = new RadioCapability(this.mPhoneId.intValue(), 0, 0, 0, PhoneConfigurationManager.SSSS, 1);
+-        riljLog("Faking RIL_REQUEST_GET_RADIO_CAPABILITY response using 0");
+-        return radioCapability;
+-    }
++    RadioCapability makeStaticRadioCapability() {
++        // Device-specific, source-level trial. Defaults OFF on the running ROM.
++        // A failed Samsung GET_RADIO_CAPABILITY currently falls back to RAF=0.
++        int fallbackRaf = 0;
++        if ("dream2lte".equals(android.os.SystemProperties.get(
++                "ro.product.vendor.device", ""))
++                && android.os.SystemProperties.getBoolean(
++                "persist.vendor.alice.s8p_raf0_resource_fallback", false)) {
++            try {
++                final String rafString = android.content.res.Resources.getSystem()
++                        .getString(com.android.internal.R.string.config_radio_access_family);
++                final int parsedRaf =
++                        android.telephony.RadioAccessFamily.rafTypeFromString(rafString);
++                if (parsedRaf != 0) {
++                    fallbackRaf = parsedRaf;
++                }
++            } catch (RuntimeException exception) {
++                riljLog("ALICE_RAF0_FALLBACK: system resource unavailable");
++            }
++        }
++        RadioCapability radioCapability = new RadioCapability(this.mPhoneId.intValue(),
++                0, 0, fallbackRaf, PhoneConfigurationManager.SSSS, 1);
++        riljLog("Faking RIL_REQUEST_GET_RADIO_CAPABILITY response using " + fallbackRaf);
++        return radioCapability;
++    }
