@@ -144,3 +144,47 @@ Owner ran \`tools/alice_sim2_lte_handoff_probe.py\` from commit \`f04c5f04991a\`
 
 This is the **validated stable baseline**. No flash or modem edit was made; the diagnostic code does not repair LTE. It positively verifies the data handoff A/B **has not happened yet**: MobiFone is NOT the default data subscription. Any follow-up probe should save \`--snapshot sim1 --output sim1.json\` before selecting MobiFone, then \`--snapshot sim2 --output sim2.json\` once \`defaultDataSubId=2\` and compare. Labels alone do not prove data switching. Avoid modifying EFS/CP or guessing binder transaction IDs; Android16 \`cmd phone\` does not provide a generic set-default-data-sub-ID verb in AOSP; supported Settings/privileged Telephony API is required.
 
+
+
+## Verified real device switch to MobiFone and failed PS LTE handoff (2026-10-24)
+
+**Major breakthrough:** Owner compiled \`tools/android16/AliceDataSimSwitch.java\` into a 3136-byte dex jar using Google's R8 on ThinkPad; \`status\` successfully queried live ISub. Then ran \`set 2\` as KernelSU root:
+\`\`\`text
+ALICE_DATA_SIM: Viettel subId=1 phoneId=0; MobiFone subId=2 phoneId=1; defaultDataSubId=1
+ALICE_DATA_SIM_REQUEST: 1 -> 2
+ALICE_DATA_SIM_READBACK: 2
+ALICE_DATA_SIM_DDS_APPLIED: radio/network registration not yet verified
+
+adb shell dumpsys isub:
+defaultDataSubId=2
+activeDataSubId=2
+
+alice_sim2_lte_handoff_probe.py --compare sim1.json sim2-after-handoff.json:
+status=SIM2_LTE_HANDOFF_NOT_OBSERVED
+default_data_phone_id_before=0
+default_data_phone_id_after=1
+sim1_wwan_ps_lte_before=true
+sim1_wwan_ps_lte_after=false
+sim2_wwan_ps_lte_after=false
+active_data_sub_matches_slot1=true
+simultaneous_dual_lte_proven=false
+\`\`\`
+
+**Updated diagnosis:** Prior \`DATA_SWITCH_NOT_CONFIRMED\` hypothesis is now RESOLVED: real AOSP Android16 ISub \`setDefaultDataSubId(2)\` invocation was accepted and the new default AND active data-subscription changed. Therefore do not ask user to repeat the same UI step or write the same setting again. The unresolved fault is **LTE/packet-switched registration after DDS handoff to phoneId1**. Note \`PS LTE false\` can mean PS registration on UMTS, or no PS cellular registration; it does NOT by itself prove total MobiFone data outage or support/non-support of specific LTE RF bands. Need inspect two **actual** PS WWAN registration and RAT values from \`sim2-after-handoff.json\` and relevant \`ProxyController\` / \`RILJ\` / \`RILC\` logs, preferably captured immediately after handoff.
+
+AOSP Android16 \`SubscriptionManagerService.setDefaultDataSubId\` calls \`remapRafIfApplicable\`, in which \`ProxyController.getMaxRafSupported()\` is assigned to the target data slot and the minimum to the other via \`ProxyController.setRadioCapability(rafs)\`. This is a key path for devices with dynamic LTE capability assignment. AOSP: https://android.googlesource.com/platform/frameworks/opt/telephony/+/android16-release/src/java/com/android/internal/telephony/subscription/SubscriptionManagerService.java
+
+Prior logs showed \`responseRadioCapability: Invalid response\` for legacy Samsung RIL; AOSP libril checks \`response == NULL || responseLen != sizeof(RIL_RadioCapability)\`: https://android.googlesource.com/platform/hardware/ril/+/refs/heads/android14-s2-release/libril/ril_service.cpp. It is plausible the RAF transaction fails, but **no post-handoff radio log was yet supplied** to establish causality in this observed handoff. The effective framework \`config_radio_access_family\` had valid \`GSM|CDMA|EVDO|WCDMA|LTE\`, so duplicate overlay work is not warranted.
+
+Added \`tools/alice_dds_lte_post_switch_triage.py\`, offline/read-only, to distinguish cellular PS WWAN UMTS HOME vs PS NOT_REG/SEARCHING vs LTE HOME after a confirmed DDS switch, using the owner's sanitized existing JSON. \`--selftest\` added to Vendor and paired Kernel CI; passing CI or Python fixtures cannot substitute for registering both radio stacks.
+
+**Owner's next read-only steps, while MobiFone selected:**
+\`\`\`bash
+python3 "$HOME/Downloads/ALICE_DDS/tools/alice_dds_lte_post_switch_triage.py" --before "$HOME/Downloads/sim1.json" --after "$HOME/Downloads/sim2-after-handoff.json"
+adb -d shell 'logcat -b radio -b main -d -t 8000' |
+  grep -iE 'ProxyController|PhoneSwitcherForMultiSim|responseRadioCapability|setRadioCapability|unknown RAF|GET_RADIO_CAPABILITY|setPreferredNetworkType|RADIO_NOT_AVAILABLE|REQUEST_NOT_SUPPORTED' | tail -90
+\`\`\`
+
+**If mobile Internet is broken**, restore known-good \`subId=1\` with the already-built helper, then verify \`defaultDataSubId=1,activeDataSubId=1\` and Viettel WWAN PS LTE; no reboot, CP/EFS write or flash is warranted.
+
+Do not claim Xiaomi-style concurrent 4G+4G solved: no device-level evidence. Keep camera/video and V12R5T.
