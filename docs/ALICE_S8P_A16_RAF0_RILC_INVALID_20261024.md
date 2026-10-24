@@ -200,3 +200,43 @@ Reference AOSP source:
 - \`RIL.makeStaticRadioCapability\`: https://android.googlesource.com/platform/frameworks/opt/telephony/+/refs/heads/main/src/java/com/android/internal/telephony/RIL.java
 - \`Phone.getRadioAccessFamily\`: https://android.googlesource.com/platform/frameworks/opt/telephony/+/refs/heads/main/src/java/com/android/internal/telephony/Phone.java
 - \`ProxyController.setRadioCapability\`: https://android.googlesource.com/platform/frameworks/opt/telephony/+/refs/heads/main/src/java/com/android/internal/telephony/ProxyController.java
+
+
+## 2026-10-24 ROM fingerprint: Samsung Galaxy S22 GZD7 Android16 identity
+
+Owner's **real S8+ dream2lte** returned:
+\`\`\`text
+ro.build.display.id=BP2A.250605.031.A3.S901BXXSNGZD7
+ro.build.version.release=16
+ro.build.fingerprint=samsung/r0sxxx/r0s:16/BP2A.250605.031.A3/S901BXXSNGZD7:user/release-keys
+pm path com.android.phone=package:/system/priv-app/TeleService/TeleService.apk
+\`\`\`
+
+**Cross-verification:** Samsung's official Galaxy S22 (SM-S901B) firmware changelog identifies \`S901BXXSNGZD7\` as an **Android16** release published 2026-05-27:
+https://doc.samsungmobile.com/SM-S901B/021718220304/eng.html
+LineageOS device wiki confirms \`r0s\` is Galaxy S22 Exynos2200:
+https://github.com/LineageOS/lineage_wiki/blob/main/_data/devices/r0s.yml
+
+**Interpretation:** The device is physically S8+ Exynos8895 (owner's independent \`ro.product.vendor.device=dream2lte\`, boot kernel 4.4 Alice, radio CP G955F) but the Android system advertises a Galaxy S22 firmware identity. This is consistent with a Samsung OneUI8 port or build-fingerprint impersonation; it **does not prove** every runtime system/framework artifact was sourced unchanged from S22 firmware nor identify the custom ROM tree/maintainer.
+
+\`TeleService.apk\` is the \`com.android.phone\` Android privileged application path, **not automatically the JAR containing \`com.android.internal.telephony.RIL\`**. That source traditionally builds as \`telephony-common.jar\`, possibly with ART oat/vdex or OEM-modified class loading. Need inspect installed runtime Java classpaths and framework jar inventories before attempting smali/dex transformations.
+
+A safe read-only on-device provenance check:
+\`\`\`bash
+adb -d shell '
+echo "===== DEVICE VS SYSTEM ====="
+getprop ro.product.vendor.device
+getprop ro.product.device
+getprop ro.build.display.id
+echo "===== TELEPHONY PACKAGES ====="
+pm path com.android.phone
+echo "===== FRAMEWORK JAR FILES ====="
+for x in /system/framework/telephony-common.jar /system_ext/framework/telephony-common.jar /system/framework/services.jar /system/priv-app/TeleService/TeleService.apk; do
+  [ -e "$x" ] && ls -l "$x"
+done
+echo "===== BOOT CLASSPATH TELEPHONY ENTRIES ====="
+printf "%s\n" "$BOOTCLASSPATH" | tr ":" "\n" | grep -Ei "telephony|framework|services" | head -30
+'
+\`\`\`
+
+**No proof that the exact matching Samsung OneUI8 Telephony source is publicly released or built in current Vendor/Kernel repos.** Do not replace \`TeleService.apk\` just because \`pm path\` shows it; replacing signed Samsung apps/core framework JARs on a working phone risks zygote/phone-process bootloop and loss of mobile connectivity. The current source-only RIL fallback trial cannot be packaged into a flash-ready boot/vendor without matching framework build. The stable S8+ camera/video and 4G Viettel should be preserved.
