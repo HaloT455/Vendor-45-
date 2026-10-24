@@ -245,3 +245,38 @@ adb -d shell 'su -c "CLASSPATH=/data/local/tmp/alice-data-sim-switch.jar app_pro
 Interpret cached RAF values in both slots before proposing any ROM change. Raf mask containing LTE **does not prove WWAN LTE registration**. A no-op because both cached RAFs are 0 can hide broken RadioCapability initialization, whereas a no-op because both are nonzero may simply reflect framework assumption of dual same capability despite a legacy modem's 4G+3G behavior. Samsung originally advertised S8+ dual-SIM as 4G+3G, not 4G+4G: https://www.samsung.com/sg/news/local/samsung-announces-availability-of-galaxy-s8-s8plus-and-galaxy-tab-s3-in-singapore/
 
 **No boot/vendor flashing or CP/EFS changes; preserve current camera and working Viettel LTE baseline.** Earlier experimental \`Phone.updateAllowedNetworkTypes\` fallback patch remains disabled by default and **does not address a possibly no-op \`ProxyController.setRadioCapability\` decision** without more actual RAF evidence.
+
+
+## 2026-10-24 — decisive BOTH-SLOT cached RAF=0 confirmed via live ITelephony
+
+Owner downloaded, built via standalone Google R8, pushed and executed the read-only `AliceDataSimSwitch raf` directly on Android16 S8+:
+```text
+ALICE_CACHED_RAF: phoneId=0 decimal=0 hex=0x0 LTE_BIT_4096=false
+ALICE_CACHED_RAF: phoneId=1 decimal=0 hex=0x0 LTE_BIT_4096=false
+ALICE_CACHED_RAF_READ_ONLY: no radio commands sent
+```
+**This is now VERIFIED RUNTIME FACT**, not an inference from stale radio buffer messages. The Binder API reads `ITelephony.getRadioAccessFamily(phoneId)`, which delegates to ProxyController and its `Phone.getRadioAccessFamily()` cached RadioCapability, per AOSP. Both cached Phone RAF masks are 0, despite Viettel having been independently confirmed PS WWAN HOME LTE and MobiFone PS WWAN HOME HSUPA after selecting DDS2.
+
+The AOSP `RadioAccessFamily.rafTypeFromString("GSM|CDMA|EVDO|WCDMA|LTE")` accepts every component and produces non-zero mask. The effective `cmd overlay lookup --user 0 android android:string/config_radio_access_family` had previously returned this nonempty, syntactically valid string. AOSP `RIL.makeStaticRadioCapability()` ought to parse it on a fallback, but the user's boot-time RILJ previously logged `Faking RIL_REQUEST_GET_RADIO_CAPABILITY response using 0` after invalid native responses. **Do not conclude the runtime resource was the same at RIL initialization** or assume the ROM vendor uses unmodified AOSP on all paths.
+
+Because both cached RAFs are zero, the 22:10 `ProxyController.setRadioCapability: Already in requested configuration, nothing to do.` log is consistent with all requested/recorded RAFs being 0. The PhoneSwitcher DDS success is genuine but it does not imply hardware capability reallocation occurred. AOSP ProxyController no-ops when every current RAF matches the requested RAF, with no zero-value validation.
+
+**Corrective action to previous patch hypothesis:** the experimental file `patches/android16/0001-Phone-optional-S8Plus-phone1-RAF0-framework-fallback.patch` affects only phone1, only `updateAllowedNetworkTypes`, is disabled by default, and CANNOT fix both phones' cached RadioCapability RAF=0 or ProxyController no-op. It should NOT be described or used as a complete fix. Avoid enabling or flashing it based on this evidence alone. A production-grade solution requires correct RIL capability response or **proven ROM-specific Telephony source compatibility fallback** for both phone IDs *without misrepresenting proprietary modem capability*. Current Vendor and Kernel trees do not contain exact matching Android16 Telephony framework source or the closed Samsung RIL implementation.
+
+Added read-only `raf-local` mode to the already-built rooted Java helper:
+```bash
+cd ~/Downloads/ALICE_DDS
+curl -fL "https://raw.githubusercontent.com/HaloT455/Vendor-45-/0ed88d76941f1a29b5c93719d885ad60770a74ad/tools/android16/AliceDataSimSwitch.java" -o tools/android16/AliceDataSimSwitch.java
+R8_JAR="$PWD/r8-8.8.34.jar" bash tools/android16/build_alice_data_sim_switch.sh "$PWD/alice-data-sim-switch.jar"
+adb -d push alice-data-sim-switch.jar /data/local/tmp/alice-data-sim-switch.jar
+adb -d shell 'su -c "CLASSPATH=/data/local/tmp/alice-data-sim-switch.jar app_process /system/bin AliceDataSimSwitch raf-local"'
+```
+This prints AOSP parser output for the known config string, then fetches `Resources.getSystem()` `config_radio_access_family` if visible and prints its parsed mask. This is **a new app_process resource context, not the Telephony RIL context**, so a valid result would help isolate parser error but still not prove the exact resources at boot RIL initialization. No modem write takes place.
+
+AOSP authoritative references:
+- RadioAccessFamily.java parse symbols: https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/telephony/java/android/telephony/RadioAccessFamily.java
+- Phone.java cached RAF + allowed-network early abort: https://android.googlesource.com/platform/frameworks/opt/telephony/+/refs/heads/main/src/java/com/android/internal/telephony/Phone.java
+- ProxyController.java compare-every-RAF no-op: https://android.googlesource.com/platform/frameworks/opt/telephony/+/refs/heads/main/src/java/com/android/internal/telephony/ProxyController.java
+- RIL.java `makeStaticRadioCapability`: https://android.googlesource.com/platform/frameworks/opt/telephony/+/refs/heads/main/src/java/com/android/internal/telephony/RIL.java
+
+**Test gates:** Recognize that recovering valid framework RAFs may remove the Phone.setPreferredNetworkType/allowed-networks early abort and ProxyController false no-op, but does NOT guarantee concurrent 4G+4G on Exynos 8895. Preserve baseband/CP, EFS, boot V12R5T, paired vendor, and working camera/video. Only claim 4G+4G if BOTH WWAN PS registrations are HOME/ROAMING LTE at the same instant.
