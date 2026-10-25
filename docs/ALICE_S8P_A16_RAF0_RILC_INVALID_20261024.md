@@ -626,3 +626,29 @@ ThinkPad /dev/sda2 root filesystem: Size 117G, Used 90G, Avail 21G (82% used)
 Conclusion: enough host space for **ONE raw 6,815,744,000-byte SYSTEM backup** to ThinkPad. Do not simultaneously retain multiple full copies without rechecking space. Device root SYSTEM EROFS remains read-only. The correct safety step (only when owner elects) is an ADB \`exec-out\` read-only pull of exact SYSTEM raw device onto the host, validate exact 6815744000-byte length and SHA256 against a separate on-device read, and retain the original backed up without rewriting or modifying it. Reading SYS via dd to stdout is fundamentally different from flashing; no \`of=/dev/block/*\` command should be used. A verified backup alone is NOT a validated restoration route; RECOVERY 46 MiB block size does not confirm TWRP boot, decrypted storage support or restoring bootclasspath/EROFS image on failed Android boot. Recovery/rollback gate still NO-GO.
 
 Do not touch RADIO=/dev/block/sda10, EFS=/dev/block/sda3, CP/EFS or USERDATA. The OFF-by-default RAF0 candidate is still strictly offline.
+
+
+## 2026-10-25 TWRP 3.7.1 physically booted: USB ADB recovery + SYSTEM partition accessible
+
+Owner rebooted actual S8+ from Android into recovery: \`adb -d reboot recovery\`. Recovery boots successfully and remains accessible by USB/ADB:
+\`\`\`text
+adb devices: ce051715dadb531c01 recovery
+getprop ro.twrp.version: 3.7.1_12-0
+id: uid=0(root) gid=0(root) ... context=u:r:su:s0
+/dev/block/by-name/SYSTEM -> /dev/block/sda17
+blockdev --getsize64 /dev/block/by-name/SYSTEM -> 6815744000
+/proc/filesystems: ext4, f2fs, erofs
+\`\`\`
+Prior host-side ramdisk extraction from backup recovery image found executable \`system/bin/recovery\` (ELF with TWRP markers), \`system/bin/twrp\` (ELF with TWRP markers) and \`system/etc/twrp.flags\`:
+\`\`\`
+/system auto /dev/block/platform/11120000.ufs/by-name/SYSTEM flags=display="System"
+/system_image emmc /dev/block/platform/11120000.ufs/by-name/SYSTEM flags=display="System Image";flashimg=1
+\`\`\`
+
+**Genuine progress:** independent TWRP boot has been observed, root ADB is available from Recovery while Android is not running, and SYSTEM block address/expected size are available. This is stronger than only identifying a TWRP binary from the archived recovery ramdisk. Original SYSTEM and RECOVERY image backups both have matching independently measured device/host SHA256:
+\`\`\`
+SYSTEM 6815744000 bytes  aeec24b2130dd9bce23d16b27335bf1c375828752e917d3e65bb6d6c1112c4de
+RECOVERY 48234496 bytes  477793157392e5613f081f91a077779f7d873480db55d35cb785bdc124d2ef9b
+\`\`\`
+
+**Not yet demonstrated:** recovery-side raw SYSTEM hash, successful recovery-side restore of the backed-up EROFS SYSTEM image, ART boot with patched \`telephony-common.jar\`, correct SELinux property contexts, and modem dual-LTE behavior. Do **not** conduct a destructive test restoration merely for proof, and do not flash RAF0 candidate. Safe next step: read-only \`sha256sum /dev/block/by-name/SYSTEM\` while in TWRP and inspect \`/tmp/recovery.log\` for partition warnings. If successful, reboot System without writing anything in recovery. This does not imply a tested recovery restore procedure, only that recovery boots and has ADB/root and raw block visibility.
