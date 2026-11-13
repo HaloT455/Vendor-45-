@@ -17,6 +17,7 @@
 #include <string.h>
 
 #define LOG(...) __android_log_print(ANDROID_LOG_ERROR,"ALICE_CameraPreview",__VA_ARGS__)
+#define SHOT_LOG(...) __android_log_print(ANDROID_LOG_INFO,"ALICE_CameraShutter",__VA_ARGS__)
 #define PREVIEW_TAG 0x80030000u
 #define PICTURE_TAG 0x80030001u
 #define VIDEO_TAG 0x80030002u
@@ -35,6 +36,25 @@
 #define OUTPUT 0
 #define MAX_CAMERAS 8
 #define MAX_SIZE_TUPLES 128
+
+/* Android 9 camera3 metadata ABI. */
+#define AOSP_CONTROL_AE_MODE 0x00010003u
+#define AOSP_CONTROL_CAPTURE_INTENT 0x0001000du
+#define AOSP_CONTROL_MODE 0x0001000fu
+#define AOSP_CONTROL_ENABLE_ZSL 0x00010029u
+#define AOSP_FLASH_MODE 0x00040002u
+#define AOSP_AVAILABLE_CAPABILITIES 0x000c000cu
+#define AOSP_AVAILABLE_REQUEST_KEYS 0x000c000du
+#define CAPABILITY_PRIVATE_REPROCESSING 4
+#define CAPABILITY_YUV_REPROCESSING 7
+#define TYPE_BYTE 0
+#define STILL_CAPTURE_INTENT 2
+#define STILL_CAPTURE_TEMPLATE 2
+#define CONTROL_AUTO 1
+#define AE_MODE_ON 1
+#define FLASH_MODE_OFF 0
+#define DEVICE_API_3_0 0x300
+#define DEVICE_API_3_5 0x305
 
 typedef struct camera_metadata camera_metadata_t;
 struct hw_module;
@@ -56,6 +76,17 @@ struct hw_module {
 #else
     uint32_t reserved[25];
 #endif
+};
+struct hw_device {
+    uint32_t tag;
+    uint32_t version;
+    hw_module_t *module;
+#ifdef __LP64__
+    uint64_t reserved[12];
+#else
+    uint32_t reserved[12];
+#endif
+    int (*close)(hw_device_t *);
 };
 typedef struct camera_info {
     int facing, orientation;
@@ -100,6 +131,29 @@ typedef struct camera_metadata_ro_entry {
     } data;
 } camera_metadata_ro_entry_t;
 
+typedef struct camera3_device camera3_device_t;
+struct camera3_callback_ops;
+struct camera3_stream_configuration;
+struct camera3_stream_buffer_set;
+struct camera3_capture_request;
+struct vendor_tag_query_ops;
+typedef struct camera3_device_ops {
+    int (*initialize)(const camera3_device_t *, const struct camera3_callback_ops *);
+    int (*configure_streams)(const camera3_device_t *, struct camera3_stream_configuration *);
+    int (*register_stream_buffers)(const camera3_device_t *, const struct camera3_stream_buffer_set *);
+    const camera_metadata_t *(*construct_default_request_settings)(const camera3_device_t *, int);
+    int (*process_capture_request)(const camera3_device_t *, struct camera3_capture_request *);
+    void (*get_metadata_vendor_tag_ops)(const camera3_device_t *, struct vendor_tag_query_ops *);
+    void (*dump)(const camera3_device_t *, int);
+    int (*flush)(const camera3_device_t *);
+    void *reserved[8];
+} camera3_device_ops_t;
+struct camera3_device {
+    hw_device_t common;
+    camera3_device_ops_t *ops;
+    void *priv;
+};
+
 typedef size_t (*count_fn)(const camera_metadata_t *);
 typedef int (*find_fn)(const camera_metadata_t *,uint32_t,camera_metadata_ro_entry_t *);
 typedef camera_metadata_t *(*alloc_fn)(size_t,size_t);
@@ -110,6 +164,20 @@ typedef int (*set_ops_fn)(const vendor_tag_ops_t *);
 typedef uint64_t (*get_vendor_id_fn)(const camera_metadata_t *);
 typedef void (*set_vendor_id_fn)(camera_metadata_t *,uint64_t);
 typedef void (*free_fn)(camera_metadata_t *);
+typedef camera_metadata_t *(*clone_fn)(const camera_metadata_t *);
+struct camera_metadata_entry;
+typedef int (*update_fn)(camera_metadata_t *, size_t, const void *, size_t,
+                         struct camera_metadata_entry *);
+
+struct still_template {
+    camera3_device_t *device;
+    camera3_device_ops_t *original_ops;
+    int (*original_close)(hw_device_t *);
+    camera3_device_ops_t ops;
+    camera_metadata_t *metadata;
+    free_fn release;
+    void *metadata_lib;
+};
 
 static camera_module_t *delegate;
 static hw_module_methods_t delegated_methods;
@@ -118,6 +186,8 @@ static vendor_tag_ops_t merged_ops;
 static camera_metadata_t *static_metadata[MAX_CAMERAS];
 static pthread_mutex_t mu = PTHREAD_MUTEX_INITIALIZER;
 static void *metadata_handle;
+static pthread_mutex_t still_mu = PTHREAD_MUTEX_INITIALIZER;
+static struct still_template still_devices[MAX_CAMERAS];
 
 __attribute__((visibility("default")))
 camera_module_t HMI = {
@@ -208,11 +278,156 @@ static void wrapped_get_vendor_tag_ops(vendor_tag_ops_t *ops) {
     if (!ok && delegate && delegate->get_vendor_tag_ops)
         delegate->get_vendor_tag_ops(ops);
 }
+
+static bool byte_tag_is(find_fn find, const camera_metadata_t *metadata,
+                        uint32_t tag, uint8_t value) {
+    camera_metadata_ro_entry_t entry = {0};
+    return find(metadata,tag,&entry)==0 && entry.type==TYPE_BYTE &&
+        entry.count==1 && entry.data.u8 && entry.data.u8[0]==value;
+}
+
+static bool supports_still_zsl(find_fn find, const camera_metadata_t *metadata) {
+    camera_metadata_ro_entry_t capabilities = {0}, keys = {0};
+    if (find(metadata,AOSP_AVAILABLE_CAPABILITIES,&capabilities)!=0 ||
+        capabilities.type!=TYPE_BYTE || !capabilities.data.u8 ||
+        find(metadata,AOSP_AVAILABLE_REQUEST_KEYS,&keys)!=0 ||
+        keys.type!=TYPE_INT32 || !keys.data.i32)
+        return false;
+    bool reprocessing=false;
+    for (size_t i=0;i<capabilities.count;++i) {
+        uint8_t cap=capabilities.data.u8[i];
+        if (cap==CAPABILITY_PRIVATE_REPROCESSING || cap==CAPABILITY_YUV_REPROCESSING) {
+            reprocessing=true;
+            break;
+        }
+    }
+    if (!reprocessing) return false;
+    for (size_t i=0;i<keys.count;++i)
+        if ((uint32_t)keys.data.i32[i]==AOSP_CONTROL_ENABLE_ZSL) return true;
+    return false;
+}
+
+static camera_metadata_t *fast_still_template(const camera_metadata_t *source,
+                                              find_fn find, clone_fn clone,
+                                              update_fn update, free_fn release) {
+    camera_metadata_ro_entry_t zsl = {0};
+    const uint8_t enable=1;
+    if (!source || !byte_tag_is(find,source,AOSP_CONTROL_CAPTURE_INTENT,STILL_CAPTURE_INTENT) ||
+        !byte_tag_is(find,source,AOSP_CONTROL_MODE,CONTROL_AUTO) ||
+        !byte_tag_is(find,source,AOSP_CONTROL_AE_MODE,AE_MODE_ON) ||
+        !byte_tag_is(find,source,AOSP_FLASH_MODE,FLASH_MODE_OFF) ||
+        find(source,AOSP_CONTROL_ENABLE_ZSL,&zsl)!=0 || zsl.type!=TYPE_BYTE ||
+        zsl.count!=1 || !zsl.data.u8 || zsl.data.u8[0]!=0)
+        return NULL;
+
+    camera_metadata_t *copy=clone(source);
+    if (!copy) return NULL;
+    if (update(copy,zsl.index,&enable,1,NULL)!=0) {
+        release(copy);
+        return NULL;
+    }
+    return copy;
+}
+
+static const camera_metadata_t *still_default_request(const camera3_device_t *device,
+                                                      int type) {
+    struct still_template *state=(void *)((char *)device->ops -
+        offsetof(struct still_template,ops));
+    const camera_metadata_t *original=
+        state->original_ops->construct_default_request_settings(device,type);
+    if (!original || type!=STILL_CAPTURE_TEMPLATE) return original;
+
+    pthread_mutex_lock(&still_mu);
+    if (!state->metadata) {
+        find_fn find=(find_fn)dlsym(state->metadata_lib,"find_camera_metadata_ro_entry");
+        clone_fn clone=(clone_fn)dlsym(state->metadata_lib,"clone_camera_metadata");
+        update_fn update=(update_fn)dlsym(state->metadata_lib,"update_camera_metadata_entry");
+        if (find && clone && update)
+            state->metadata=fast_still_template(original,find,clone,update,state->release);
+        if (state->metadata)
+            SHOT_LOG("Rear still template enables the HAL ZSL request key");
+    }
+    const camera_metadata_t *result=state->metadata ? state->metadata : original;
+    pthread_mutex_unlock(&still_mu);
+    return result;
+}
+
+static int still_device_close(hw_device_t *hw) {
+    camera3_device_t *device=(camera3_device_t *)hw;
+    struct still_template *state=(void *)((char *)device->ops -
+        offsetof(struct still_template,ops));
+
+    pthread_mutex_lock(&still_mu);
+    camera_metadata_t *metadata=state->metadata;
+    free_fn release=state->release;
+    void *metadata_lib=state->metadata_lib;
+    int (*close_device)(hw_device_t *)=state->original_close;
+    device->ops=state->original_ops;
+    device->common.close=close_device;
+    state->device=NULL;
+    pthread_mutex_unlock(&still_mu);
+
+    int status=close_device(hw);
+    if (metadata) release(metadata);
+    dlclose(metadata_lib);
+    return status;
+}
+
+static void enable_still_zsl(const char *id, hw_device_t *hw) {
+    if (!id || !hw || hw->version<DEVICE_API_3_0 || hw->version>DEVICE_API_3_5 ||
+        !hw->close || id[0]<'0' || id[0]>'7' || id[1]!='\0')
+        return;
+
+    camera3_device_t *device=(camera3_device_t *)hw;
+    if (!device->ops || !device->ops->construct_default_request_settings)
+        return;
+
+    camera_info_t info = {0};
+    if (delegate->get_camera_info(id[0]-'0',&info)!=0 || info.facing!=0 ||
+        !info.static_camera_characteristics)
+        return;
+
+    void *metadata_lib=dlopen("libcamera_metadata.so",RTLD_NOW|RTLD_LOCAL);
+    if (!metadata_lib) return;
+    find_fn find=(find_fn)dlsym(metadata_lib,"find_camera_metadata_ro_entry");
+    free_fn release=(free_fn)dlsym(metadata_lib,"free_camera_metadata");
+    if (!find || !release ||
+        !supports_still_zsl(find,info.static_camera_characteristics)) {
+        SHOT_LOG("Camera %s has no reported still ZSL capability",id);
+        dlclose(metadata_lib);
+        return;
+    }
+
+    /* Keep each default template valid until its HAL device closes. */
+    pthread_mutex_lock(&still_mu);
+    for (size_t i=0;i<MAX_CAMERAS;++i) {
+        struct still_template *state=&still_devices[i];
+        if (state->device) continue;
+        state->device=device;
+        state->original_ops=device->ops;
+        state->original_close=hw->close;
+        state->ops=*device->ops;
+        state->ops.construct_default_request_settings=still_default_request;
+        state->metadata=NULL;
+        state->release=release;
+        state->metadata_lib=metadata_lib;
+        device->ops=&state->ops;
+        hw->close=still_device_close;
+        pthread_mutex_unlock(&still_mu);
+        return;
+    }
+    pthread_mutex_unlock(&still_mu);
+    dlclose(metadata_lib);
+}
+
 static int wrapped_open(const hw_module_t *ignored,const char *id,hw_device_t **device) {
     (void)ignored;
     if (!delegate || !delegate->common.methods ||
         !delegate->common.methods->open) return -ENODEV;
-    return delegate->common.methods->open(&delegate->common,id,device);
+    int status=delegate->common.methods->open(&delegate->common,id,device);
+    if (status==0 && device)
+        enable_still_zsl(id,*device);
+    return status;
 }
 static int wrapped_open_legacy(const hw_module_t *ignored,const char *id,
                                uint32_t version,hw_device_t **device) {
